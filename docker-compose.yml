@@ -1,0 +1,33 @@
+version: "3.9"
+services:
+  mysql-demo:
+    image: mysql:8.0
+    container_name: mysql-demo
+    environment:
+      MYSQL_ROOT_PASSWORD: 290390
+      MYSQL_DATABASE: dingping   # 与 application.yaml 保持一致
+      TZ: Asia/Shanghai
+    ports:
+      - "3306:3306"
+    command: --default-authentication-plugin=mysql_native_password
+    volumes:
+      - ./data/mysql:/var/lib/mysql
+      - ./src/main/resources/db/hmdp.sql:/docker-entrypoint-initdb.d/hmdp.sql
+
+  redis-demo:
+    image: redis:6.2
+    container_name: redis-demo
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./data/redis:/data
+
+  rabbitmq-demo:
+    image: rabbitmq:3-management
+    container_name: rabbitmq-demo
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest

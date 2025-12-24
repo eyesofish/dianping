@@ -1,0 +1,83 @@
+# 黑马点评本地启动傻瓜教程
+目标：让第一次接触的人从 0 拉起 Redis / MySQL（已有镜像）、RabbitMQ、后端、前端并完成联调。
+
+## 0. 准备工具
+- 安装 JDK 8、Maven 3.8+、Docker Desktop（含 docker-compose）、Git；前端需要 Node.js 16+ 和 npm/yarn。
+- 确保端口空闲：3306（MySQL）、6379（Redis）、5672/15672（RabbitMQ）、8081（后端）、前端开发端口（5173 或 8080 视前端工具而定）。
+
+## 1. 获取代码
+```powershell
+git clone https://github.com/xxx/dianping.git
+cd dianping
+```
+
+## 2. 用 docker-compose 拉起依赖
+在项目根目录新建 `docker-compose.yml`（已有 redis / mysql 镜像的话把 image 改成你本地镜像名/标签）：
+```yaml
+version: "3.9"
+services:
+  mysql-demo:
+    image: mysql:8.0
+    container_name: mysql-demo
+    environment:
+      MYSQL_ROOT_PASSWORD: 290390
+      MYSQL_DATABASE: dingping   # 与 application.yaml 保持一致
+      TZ: Asia/Shanghai
+    ports:
+      - "3306:3306"
+    command: --default-authentication-plugin=mysql_native_password
+    volumes:
+      - ./data/mysql:/var/lib/mysql
+      - ./src/main/resources/db/hmdp.sql:/docker-entrypoint-initdb.d/hmdp.sql
+
+  redis-demo:
+    image: redis:6.2
+    container_name: redis-demo
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./data/redis:/data
+
+  rabbitmq-demo:
+    image: rabbitmq:3-management
+    container_name: rabbitmq-demo
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+```
+启动容器：
+```powershell
+docker-compose up -d
+docker ps   # 确认三个容器都在运行
+```
+> 首次启动 MySQL 会自动导入 `hmdp.sql`。如果没有导入，可手动执行：`docker exec -i mysql-demo mysql -uroot -p290390 -e "create database if not exists dingping charset utf8mb4;"`，然后 `docker exec -i mysql-demo mysql -uroot -p290390 dingping < src/main/resources/db/hmdp.sql`。
+
+## 3. 校对后端配置
+打开 `src/main/resources/application.yaml`，确认：
+- `spring.datasource.url` 指向 `dingping`（或改成你用的库名/端口）；
+- `spring.datasource.username/password` 与 docker-compose 保持一致；
+- `spring.redis.host/port`、`spring.rabbitmq.host/port` 指向本机或容器暴露端口。
+
+## 4. 启动后端
+```powershell
+mvn clean package -DskipTests   # 首次拉依赖时执行
+mvn spring-boot:run             # 或用 IDE 运行 HmDianPingApplication
+```
+后端默认端口 8081。快速自测：
+- `curl http://localhost:8081/shop-type/list` 应返回店铺类型数据；
+- 登录流程：POST `/user/code` 携带手机号，验证码会打印在后端日志中；再 POST `/user/login` 携带手机号和验证码拿到 token。
+
+## 5. 启动前端（代码需自备）
+- 如果有课程提供的 Vue 源码：`cd` 到前端目录 → `npm install` → 确认接口基地址指向 `http://localhost:8081`（通常在 `.env.development` 或 `src/utils/request*.js`）→ `npm run dev -- --host`，浏览器访问 dev 端口（常见 5173/8080）。
+- 如果拿到打包好的 `dist` 静态包：`npx serve ./dist -l 8080`，或用 nginx 把 `dist` 当静态站点并把 `/api` 代理到 `http://localhost:8081`。
+- 登录时点击“发送验证码”，到后端日志里拿 6 位验证码，再填回前端即可。
+
+## 6. 联调排查小贴士
+- 任何配置改动（端口、密码、库名）要同步修改 `application.yaml` 或 docker-compose，并重启后端。
+- 跨域问题：在前端 dev 服务器或 nginx 配置代理，把 API 请求转发到 `http://localhost:8081`。
+- 容器常用排查：`docker logs mysql-demo`、`docker logs redis-demo`、`docker logs rabbitmq-demo`、`docker exec -it mysql-demo mysql -uroot -p290390`。
+
+照着上述步骤执行即可完成从依赖容器到后端、前端的完整启动与联调。
