@@ -1,6 +1,5 @@
 package com.hmdp.controller;
 
-
 import cn.hutool.core.bean.BeanUtil;
 import com.hmdp.dto.LoginFormDTO;
 import com.hmdp.dto.Result;
@@ -25,8 +24,8 @@ import javax.servlet.http.HttpSession;
  * 前端控制器
  * </p>
  *
- * @author 虎哥
- * @since 2021-12-22
+ * @author 俞洋
+ * @since 2025-12-22
  */
 @Slf4j
 @RestController
@@ -47,36 +46,38 @@ public class UserController {
      */
     @PostMapping("code")
     public Result sendCode(@RequestParam("phone") String phone, HttpSession session) {
-        return userService.sendCode(phone,session);
+        return userService.sendCode(phone, session);
     }
 
     /**
      * 登录功能
+     * 
      * @param loginForm 登录参数，包含手机号、验证码；或者手机号、密码
      */
     @PostMapping("/login")
-    public Result login(@RequestBody LoginFormDTO loginForm, HttpSession session){
-        return userService.login(loginForm,session);
+    public Result login(@RequestBody LoginFormDTO loginForm, HttpSession session) {
+        return userService.login(loginForm, session);
     }
 
     /**
      * 登出功能
+     * 
      * @return 无
      */
     @PostMapping("/logout")
-    public Result logout(){
+    public Result logout() {
         UserHolder.removeUser();
         return Result.fail("功能未完成");
     }
 
     @GetMapping("/me")
-    public Result me(){
+    public Result me() {
         UserDTO user = UserHolder.getUser();
         return Result.ok(user);
     }
 
     @GetMapping("/info/{id}")
-    public Result info(@PathVariable("id") Long userId){
+    public Result info(@PathVariable("id") Long userId) {
         // 查询详情
         UserInfo info = userInfoService.getById(userId);
         if (info == null) {
@@ -90,10 +91,10 @@ public class UserController {
     }
 
     @GetMapping("/{id}")
-    public Result queryUserById(@PathVariable("id") Long userId){
-        //查询详情
+    public Result queryUserById(@PathVariable("id") Long userId) {
+        // 查询详情
         User user = userService.getById(userId);
-        if(user==null){
+        if (user == null) {
             return Result.ok();
         }
         UserDTO userDTO = BeanUtil.copyProperties(user, UserDTO.class);
@@ -102,19 +103,21 @@ public class UserController {
 
     /**
      * 签到功能
+     * 
      * @return
      */
     @PostMapping("/sign")
-    public Result sign(){
+    public Result sign() {
         return userService.sign();
     }
 
     /**
      * 统计连续签到
+     * 
      * @return
      */
     @GetMapping("/sign/count")
-    public Result signCount(){
+    public Result signCount() {
         return userService.signCount();
     }
 }

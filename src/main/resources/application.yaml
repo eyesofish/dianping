@@ -30,3 +30,5 @@
   logging:
     level:
       com.hmdp: debug
+    file:
+      name: logs/app.log

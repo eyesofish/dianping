@@ -1,5 +1,5 @@
-# 黑马点评本地启动傻瓜教程
-目标：让第一次接触的人从 0 拉起 Redis / MySQL（已有镜像）、RabbitMQ、后端、前端并完成联调。
+# 黑马点评本地启动傻瓜教程（后端 + 前端 Vue3）
+目标：让第一次接触的人从 0 拉起 Redis / MySQL（已有镜像）、RabbitMQ、后端、前端并完成联调（前端代码位于 `frontend/hmdp`）。
 
 ## 0. 准备工具
 - 安装 JDK 8、Maven 3.8+、Docker Desktop（含 docker-compose）、Git；前端需要 Node.js 16+ 和 npm/yarn。
@@ -9,6 +9,7 @@
 ```powershell
 git clone https://github.com/xxx/dianping.git
 cd dianping
+# 前端已克隆到 frontend/hmdp（vue3 + vite）
 ```
 
 ## 2. 用 docker-compose 拉起依赖
@@ -65,14 +66,20 @@ docker ps   # 确认三个容器都在运行
 ```powershell
 mvn clean package -DskipTests   # 首次拉依赖时执行
 mvn spring-boot:run             # 或用 IDE 运行 HmDianPingApplication
+bash mvn-jdk21.sh -Dmaven.test.skip=true spring-boot:run
 ```
 后端默认端口 8081。快速自测：
 - `curl http://localhost:8081/shop-type/list` 应返回店铺类型数据；
 - 登录流程：POST `/user/code` 携带手机号，验证码会打印在后端日志中；再 POST `/user/login` 携带手机号和验证码拿到 token。
 
-## 5. 启动前端（代码需自备）
-- 如果有课程提供的 Vue 源码：`cd` 到前端目录 → `npm install` → 确认接口基地址指向 `http://localhost:8081`（通常在 `.env.development` 或 `src/utils/request*.js`）→ `npm run dev -- --host`，浏览器访问 dev 端口（常见 5173/8080）。
-- 如果拿到打包好的 `dist` 静态包：`npx serve ./dist -l 8080`，或用 nginx 把 `dist` 当静态站点并把 `/api` 代理到 `http://localhost:8081`。
+## 5. 启动前端（已内置 Vue3 项目：frontend/hmdp）
+- 进入前端目录安装依赖并启动：
+  ```bash
+  cd frontend/hmdp
+  npm install
+  npm run dev -- --host   # 默认端口 5173，如被占用自行调整
+  ```
+- 前端请求基地址在 `frontend/hmdp/src/utils/request.js`，已指向 `http://localhost:8081`，与后端一致，无需改动。
 - 登录时点击“发送验证码”，到后端日志里拿 6 位验证码，再填回前端即可。
 
 ## 6. 联调排查小贴士
@@ -81,3 +88,10 @@ mvn spring-boot:run             # 或用 IDE 运行 HmDianPingApplication
 - 容器常用排查：`docker logs mysql-demo`、`docker logs redis-demo`、`docker logs rabbitmq-demo`、`docker exec -it mysql-demo mysql -uroot -p290390`。
 
 照着上述步骤执行即可完成从依赖容器到后端、前端的完整启动与联调。
+
+
+
+2026.1.4
+D:\Github\dianping\src\main\java\com\hmdp\utils\CacheClient.java 里分布式锁的实现很差，需要重构，使用watch dog 或者Redission 实现分布式锁。
+
+2026.1.14 

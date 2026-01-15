@@ -1,6 +1,5 @@
 package com.hmdp.controller;
 
-
 import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.hmdp.dto.Result;
@@ -16,8 +15,8 @@ import javax.annotation.Resource;
  * 前端控制器
  * </p>
  *
- * @author 虎哥
- * @since 2021-12-22
+ * @author 俞洋
+ * @since 2025-12-22
  */
 @RestController
 @RequestMapping("/shop")
@@ -39,6 +38,7 @@ public class ShopController {
 
     /**
      * 新增商铺信息
+     * 
      * @param shop 商铺数据
      * @return 商铺id
      */
@@ -52,6 +52,7 @@ public class ShopController {
 
     /**
      * 更新商铺信息
+     * 
      * @param shop 商铺数据
      * @return 无
      */
@@ -64,7 +65,8 @@ public class ShopController {
 
     /**
      * 根据商铺类型分页查询商铺信息
-     * @param typeId 商铺类型
+     * 
+     * @param typeId  商铺类型
      * @param current 页码
      * @return 商铺列表
      */
@@ -72,23 +74,22 @@ public class ShopController {
     public Result queryShopByType(
             @RequestParam("typeId") Integer typeId,
             @RequestParam(value = "current", defaultValue = "1") Integer current,
-            @RequestParam(value = "x",required = false) Double x,
-            @RequestParam(value = "y",required = false) Double y
-    ) {
-        return shopService.queryShopByType(typeId,current,x,y);
+            @RequestParam(value = "x", required = false) Double x,
+            @RequestParam(value = "y", required = false) Double y) {
+        return shopService.queryShopByType(typeId, current, x, y);
     }
 
     /**
      * 根据商铺名称关键字分页查询商铺信息
-     * @param name 商铺名称关键字
+     * 
+     * @param name    商铺名称关键字
      * @param current 页码
      * @return 商铺列表
      */
     @GetMapping("/of/name")
     public Result queryShopByName(
             @RequestParam(value = "name", required = false) String name,
-            @RequestParam(value = "current", defaultValue = "1") Integer current
-    ) {
+            @RequestParam(value = "current", defaultValue = "1") Integer current) {
         // 根据类型分页查询
         Page<Shop> page = shopService.query()
                 .like(StrUtil.isNotBlank(name), "name", name)

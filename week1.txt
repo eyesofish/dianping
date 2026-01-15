@@ -1,0 +1,88 @@
+第一周目标：后端 + 前端都能本地跑通，理解分层、缓存、登录拦截的骨架。每个“思考/问题”都给出对应源码位置方便对照。
+
+Day1：后端环境基线（零经验可直接照做）
+- 先看：`pom.xml`（Spring Boot 2.3.12，Java 11 编译）、`.mvn/jvm.config`（release=11）、`mvn-jdk21.ps1`（指向本机 JDK21）、`docker-compose.yml`（MySQL/Redis/RabbitMQ）。
+- 步骤：
+  1) 装 JDK21（脚本用的路径在 `mvn-jdk21.ps1`，如不同请改路径）；Maven 会按 `.mvn/jvm.config` 编译为 Java 11 目标。
+  2) 启动依赖：`docker-compose up -d`（MySQL 8、Redis 6.2、RabbitMQ 3-management），数据卷挂到 `./data`。
+  3) 导库：执行 `src/main/resources/db/hmdp.sql`。若 MySQL 报 `Invalid default value`，加 `--init-command "SET SESSION sql_mode='STRICT_TRANS_TABLES,NO_ENGINE_SUBSTITUTION'"` 再导。
+  4) 后端打包：`.\mvn-jdk21.ps1 -Dmaven.test.skip=true clean package`（或系统已有 JDK21 直接 `mvn ...`）。
+  5) 运行：`java -jar target/hm-dianping-0.0.1-SNAPSHOT.jar`（端口 8081，配置在 `src/main/resources/application.yaml`）。
+- 验证：浏览器或 `curl http://localhost:8081/shop-type/list` 返回店铺类型列表。
+- 源码映射：数据源/Redis/RabbitMQ/日志配置在 `src/main/resources/application.yaml`，端口与账号均可直接修改后重启。
+- 思考（傻瓜说法）：面试问“你环境怎么搭、SQL 模式报错怎么破”，就按文件逐一说——`docker-compose.yml`：我用的 MySQL/Redis/RabbitMQ 版本，启动时把 `src/main/resources/db/hmdp.sql` 挂进容器自动建库；`.mvn/jvm.config`：我强制 Maven 编译成 Java 11 目标，确保兼容性；`application.yaml`：数据库连接串里的时区/sql_mode 会导致 `Invalid default value`，所以用 `--init-command` 或改 sql_mode 解决。
+
+Day2：前端基线（Vite + Vue3）
+- 先看：`frontend/hmdp/package.json`（需要 Node>=18，推荐 20.x；脚本：dev/build/preview）。
+- 步骤：
+  1) Node：用 nvm-windows 安装 20.x（`nvm install 20 && nvm use 20`）。
+  2) 安装依赖：`cd frontend/hmdp && rd /s /q node_modules package-lock.json`（PowerShell 可用 `Remove-Item -Recurse -Force`）后 `npm i`。
+  3) 启动：`npm run dev -- --host --port 5173`。
+- 验证：访问 `http://localhost:5173` 正常；接口走 8081 不报 CORS。
+- 源码映射（白话版）：跨域放行写在 `src/main/java/com/hmdp/config/MvcConfig.java` 的 `addCorsMappings`，允许 `http://localhost:5173` 和 `5174` 前端带 cookie 调 8081 接口；以后改前端端口/域名，就把这里的 `allowedOrigins` 改成新地址。
+
+
+- 思考（傻瓜版）：问“跨域怎么配、端口多少”时就答：后端跑在 8081（`application.yaml:server.port`），前端开发端口 5173（Vite dev）；跨域白名单在 `MvcConfig.addCorsMappings`，换端口/域名改那里的列表即可。
+
+Day3：分层与日志（走一条请求链，傻瓜教学版）
+- 三层到底在干嘛？
+  - Controller：像收银台，只收用户输入和给回执，不数钱不搬货。示例：`UserController.java` 接验证码/登录请求，`ShopController.java` 接查店铺请求。
+  - Service：像后台分拣员，决定流程、调仓库、调 Redis，不自己写 SQL。示例：`UserServiceImpl.login` 校验验证码→查/建用户→生成 token 写 Redis。
+  - Mapper：像仓库接口，只做“查/增/改/删”，不管业务。MyBatis-Plus 自动生成 SQL。
+  - 面试官怎么问 MyBatis-Plus？常见问法：1) “你们 SQL 是怎么写/管理的？”——回答：我们用 MyBatis-Plus，Mapper 接口定义方法，底层自动生成 CRUD SQL。2) “自定义查询怎么做？”——看项目里的 Mapper 接口和 Service 调用：Mapper 路径 `src/main/java/com/hmdp/mapper`（例如 `ShopMapper.java`），Service 路径 `src/main/java/com/hmdp/service/impl`；复杂查询可用 LambdaWrapper 或在 Mapper 写自定义方法。3) “分页/条件查询怎么写？”——参考 `ShopServiceImpl.queryShopByType` 用 MP 的分页、条件链式 API。
+  - 想学就去看：`mapper` 目录里每个 Mapper 接口（接口名对应表，路径 `src/main/java/com/hmdp/mapper`），配合 `entity` 目录里的实体；Service 里通过 `query()`、`page()`、`in()` 等链式方法调用 MP（路径 `src/main/java/com/hmdp/service/impl`）；`ShopServiceImpl.queryShopByType` 是分页+条件的实战例子。
+- 走两条真实的链路看看：
+  - 登录链：/user/login → `UserController.login` → `UserServiceImpl.login`（校验验证码→查/建用户→生成 token 写 Redis）→ Mapper 按手机号查库 → 返回 token。
+  - 查店铺链：/shop/{id} → `ShopController.queryShopById` → `ShopServiceImpl.queryById`（先查缓存、必要时查库回填缓存）。
+- 日志在哪里配：`application.yaml` 有 `logging.file.name=logs/app.log`，级别 `com.hmdp: debug`，所以日志会写到 `logs/app.log`。
+- 手把手看日志：
+  1) 打开你想看的接口，比如 `/user/code`，在对应 Controller 或 Service 加一行 `log.debug("hit /user/code")`。类上有 `@Slf4j` 就能用。
+  2) 运行后端（`mvn spring-boot:run` 或 `java -jar target/hm-dianping-0.0.1-SNAPSHOT.jar`）。
+  3) 浏览器或 curl 调用 `/user/code`，再看 `logs/app.log`，能看到这行“hit /user/code”就说明请求走到这里，日志配置也生效。
+- 面试可以这样说：
+  - Controller 负责“收参数、回结果”，不写业务。
+  - Service 负责任务编排、校验、缓存处理，调 Mapper 访问库，不直接写 SQL。
+  - Mapper 只做持久化，SQL 交给 MyBatis-Plus 生成。
+  - 举例 `/user/login`：Controller 收参 → Service 校验/查库/写 Redis → 返回 token。
+
+Day4：Redis 基础与缓存
+- 关键类：`utils/RedisConstants.java`（key 规范与 TTL）、`utils/CacheClient.java`（穿透/逻辑过期模板）、`utils/RedisData.java`（逻辑过期包装）。
+- 店铺缓存流程：`ShopServiceImpl.queryById` → `CacheClient.queryWithLogicalExpire`，命中返回 JSON+过期时间，过期时异步重建。
+- 实操检查（redis-cli）：
+  1) `keys cache:shop:*` / `ttl cache:shop:1` 看缓存寿命。
+  2) `get cache:shop:1` 观察 `RedisData` 结构（包含 `expireTime` + `data`）。
+  3) 写入空值防穿透：不存在时会写 `""`，TTL 2 分钟（`CACHE_NULL_TTL`）。
+- 思考：key 命名/封装意义？直接指向 `RedisConstants`（命名前缀、TTL）与 `CacheClient`（逻辑过期 + 互斥重建）。
+统一命名：RedisConstants 把所有 key 前缀、TTL 集中定义，避免每个地方自己拼字符串、写过期时间，减少笔误和改名/改 TTL 时的全局替换成本。
+统一策略：CacheClient 把“逻辑过期+互斥重建”等防击穿/穿透的套路封装起来，业务代码只管拿数据，不用重复写锁、过期判定等细节。
+好处：一致性（命名/TTL 同步）、可维护（改策略或前缀只改一处）、可复用（新业务直接用封装好的模式）。
+比简单拼前缀+id 多做了什么：把“怎么存、存多久、过期后怎么重建”的规则固化下来，让调用方不用关心细节。
+1/4 下午
+Day5：拦截器与认证骨架
+- 注册位置：`src/main/java/com/hmdp/config/MvcConfig.java` 的 `addInterceptors`（顺序：`RefreshTokenInterceptor` order=0，`LoginInterceptor` order=1 且放行登录/公共接口）。
+- Token 刷新：`RefreshTokenInterceptor.preHandle`（从 header `authorization` 取 token → Redis Hash 转 `UserDTO` → `UserHolder.saveUser` → 续期 30 分钟）。
+- 鉴权：`LoginInterceptor.preHandle`（`UserHolder.getUser()` 为空就 401 拦截）。
+- ThreadLocal 工具：`utils/UserHolder.java`（保存/获取/清理用户）。
+- 实操：
+  1) 不带 token 访问 `/user/me` 应返回 401。
+  2) 先登录拿 token（`/user/login`），再带 `authorization: <token>` 访问，后台日志可打印 ThreadLocal 中的用户。
+- 思考：为何两层拦截+为何要 remove？指向 `MvcConfig`（链路顺序）、`UserHolder`（ThreadLocal 不清理会脏数据）。两层拦截+remove 的核心是“先续命/注入用户，再真正验登录，最后清掉 ThreadLocal”：
+
+顺序：RefreshTokenInterceptor（order 0）先跑，它负责读 token→Redis 查用户→放进 UserHolder 并续期，不做拦截；LoginInterceptor（order 1）后跑，它只看 UserHolder 里有没有用户，没用户就 401 拦截。
+为什么要 remove：线程池会复用线程，如果这次请求把用户塞到 ThreadLocal 里不清理，下一次请求（即便没带 token）复用同一线程时还能读到上次残留的用户，产生“串号/脏数据”，也会造成内存泄漏。请求结束后必须 UserHolder.removeUser() 清空。
+
+Day6：缓存/问题复盘
+- 列疑问并定位源码：比如“逻辑过期线程池在哪”→`CacheClient` 的 `CACHE_REBUILD_EXECUTOR`；“更新店铺时如何删缓存”→`ShopServiceImpl.update` 中 `stringRedisTemplate.delete`。
+- 可顺手把常用命令写在 `TODO.txt` 旁边，方便第二周迭代。
+
+Day7：三分钟口述登录链路（带源码锚点）
+- 1) `/user/code`（`UserController.sendCode` → `UserServiceImpl.sendCode`）校验手机、Redis 写 `login:code:<phone>`。
+1/5 
+- 2) `/user/login`（`UserController.login` → `UserServiceImpl.login`）：校验验证码 → 查/建用户 → 生成 token（Hutool UUID）→ Redis Hash 写入 `login:token:<token>`，TTL 30 分钟（`RedisConstants.LOGIN_USER_TTL`）。
+- 3) 后续请求：`RefreshTokenInterceptor` 从 header 拿 token，反查 Redis，放入 `UserHolder` 并续期；`LoginInterceptor` 拦截未登录接口。
+- 4) 线程结束：理应清理 ThreadLocal（在需要时调用 `UserHolder.removeUser()`）。
+- 复核：能解释每一步在哪个类、用到哪个 key 前缀，就算通过本周校准。
+附加：局部跨域补充
+- 如果不想改全局 MvcConfig，只想让某个 Controller 放行跨域，在类上加注解：`@CrossOrigin(origins = "http://localhost:5173", allowCredentials = "true")`。只对这个类的接口生效。
+- 前端端口变成 5174 或其他，就改 `origins` 的地址。
+- 现在项目用了全局 MvcConfig，所以不用在每个类上重复写注解。

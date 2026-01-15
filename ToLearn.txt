@@ -1,0 +1,120 @@
+# 黑马点评 28 天进阶计划（基础薄弱版，含验证点/缓冲/类比/面试问法）
+每天 1.5–3 小时，四周完成。所有学习点写清楚“看什么、干什么、面试问什么”，并给常见坑速查表。
+
+类比小抄（贯穿使用，口头背诵）
+- 分层：Controller / Service / Mapper = 餐厅前台 / 后厨 / 采购。前台接单，不做菜；后厨做菜；采购对接仓库（DB/Redis）。
+- 分布式锁：公共厕所钥匙，谁先拿钥匙谁进，钥匙有超时时间，防止拿走不还。
+- Token：超市购物券，入口领券（登录），之后凭券购物（访问接口），过期需重新领。
+- 缓存击穿：热门餐厅一次只让一个厨师补菜，其它人排队；逻辑过期=先上旧菜并异步备新菜；互斥锁=只允许一个人去补菜。
+- MQ：取号排队，先领号（生产），等叫号（消费），避免所有人挤前台。
+- GEO：地图导航，按距离排序的附近餐厅列表。
+
+第 1 周（Day1–7）：环境与基础夯实 + 缓冲
+- Day1 环境基线  
+  看：pom.xml、.mvn/jvm.config（JDK21 运行，target/release=11）；docker-compose.yml。  
+  干：`mvn -Dmaven.test.skip=true clean package`；`docker-compose up -d`；导数时若报 `Invalid default value`，用 `--init-command="SET SESSION sql_mode='STRICT_TRANS_TABLES,NO_ENGINE_SUBSTITUTION';"` 导入 `src/main/resources/db/hmdp.sql`。  
+  验证：后端 8081 可访问 `/shop-type/list`。  
+  面试：问你环境如何落地、sql_mode 兼容问题怎么解决。
+- Day2 前端基线  
+  看：frontend/hmdp/package.json。  
+  干：Node>=18（nvm-windows 装 20.x），`cd frontend/hmdp && rm -rf node_modules package-lock.json && npm i && npm run dev -- --host --port 5173`。  
+  验证：首页可开，无 CORS；CORS 配置在 `src/main/java/com/hmdp/config/MvcConfig.java`。  
+  面试：跨域怎么解决？前后端端口多少？
+- Day3 分层与日志  
+  看：`src/main/java/com/hmdp/controller/UserController.java`、`ShopController.java`；`service/impl/UserServiceImpl.java`、`ShopServiceImpl.java`；`mapper` 层；`application.yaml` 日志配置。  
+  干：画“请求→前台/后厨/采购”链路；改一条日志确认 `logs/app.log` 有输出。  
+  面试：分层职责？Service 该不该写 SQL？
+- Day4 Redis 基础  
+  看：`utils/RedisConstants.java`、`utils/CacheClient.java`、`utils/RedisData.java`。  
+  干：redis-cli 读写验证码 key、shop 缓存 key，理解 TTL/结构。  
+  面试：key 命名规范？CacheClient 封装意义？
+- Day5 拦截器与认证骨架  
+  看：`interceptor/RefreshTokenInterceptor.java`（刷新 token）、`LoginInterceptor.java`（鉴权）、`utils/UserHolder.java`（ThreadLocal）。  
+  干：加日志看拦截顺序；未带 token 访问受限接口，确认被拦截。  
+  面试：为什么两层拦截？ThreadLocal 为什么要 remove？
+- Day6 缓冲日/复盘  
+  干：整理疑问，补查资料。
+- Day7 校准  
+  干：口述 3 分钟登录流程，画时序图。  
+  验证：自检能解释拦截链路。
+
+第 2 周（Day8–14）：认证链路、缓存基建
+- Day8 验证码与登录全链路  
+  看：`UserController` 的 code/login，`UserServiceImpl` 的 sendCode/login。  
+  干：获取验证码（控制台+`logs/app.log`），完成一次登录，查看 Redis 验证码 key 与 token hash。  
+  面试：验证码有效期？为何 token 放 Redis？如何防刷？
+- Day9 穿透/击穿/雪崩  
+  看：`ShopServiceImpl` 查询逻辑、`CacheClient`。  
+  干：访问不存在/热点 shop，观察 DB/Redis 访问次数。  
+  面试：三者区别与方案优缺点。
+- Day10 逻辑过期/互斥锁/预热  
+  看：`ShopServiceImpl.queryById`。  
+  干：并发压测同一 shop，确认只一条落 DB，其余走缓存。  
+  面试：何时选逻辑过期，何时选互斥锁？预热如何做？
+- Day11 缓冲/补课  
+  干：补 Redis TTL、锁细节。
+- Day12 缓存总结  
+  干：做一页对比表（穿透/击穿/雪崩 + 方案优缺点）。  
+  验证：能口述逻辑过期 vs 互斥锁选择。
+- Day13–14 综合演练  
+  干：登录→访问需登录接口→看缓存命中。  
+  面试：链路讲解 + 取舍。
+
+第 3 周（Day15–21）：秒杀、锁、MQ、Feed、GEO
+- Day15 分布式锁  
+  看：`utils/SimpleRedisLock.java`，Redisson 配置。  
+  干：小并发测试，确认只有一次持有。  
+  面试：setnx 过期、续期、重入差异，Redisson vs 自研。
+- Day16 秒杀预检 + Lua  
+  看：`service/impl/VoucherOrderServiceImpl.java`、`resources/seckill.lua`。  
+  干：插入秒杀券，调用下单接口，检查库存与一人一单。  
+  面试：为何 Lua 保证原子性？如何防超卖/重复下单？
+- Day17 异步下单 + MQ  
+  看：`listener/SeckillVoucherListener.java`，RabbitMQ 配置。  
+  干：触发秒杀，下单消息入队并消费，订单入库。  
+  面试：异步好处/一致性风险？消息不丢/不重怎么办？幂等如何做？
+- Day18 点赞/关注/Feed  
+  看：`service/impl/BlogServiceImpl.java`（点赞 ZSet、Feed 推送）、`FollowServiceImpl.java`（Set 共同关注）。  
+  干：点赞两次验证幂等；关注后看 Feed 更新；检查 ZSet 顺序。  
+  面试：为何用 ZSet/Set？score 用时间戳的利弊？滚动分页如何实现？
+- Day19 GEO 附近商户  
+  看：`ShopServiceImpl.queryShopByType` 中 GEO 查询。  
+  干：调附近商户接口，校验距离排序。  
+  面试：GEO 底层？为何用 Redis 不用 DB？精度/范围如何控制？
+- Day20 缓冲/补课  
+  干：复盘秒杀/锁/MQ/Feed/GEO。
+- Day21 模块总结  
+  干：10 分钟讲稿覆盖认证、缓存、秒杀、Feed、GEO（动机+权衡），配时序/架构图。  
+  面试：架构/取舍/踩坑/扩容/单点。
+
+第 4 周（Day22–28）：稳定性、排障、优化、面试
+- Day22 稳定性与排障清单  
+  干：整理命令与日志位置（控制台+`logs/app.log`），Redis/MySQL/MQ 检查，端口占用检查。  
+  面试：排障思路，如何快速定位。
+- Day23 性能与优化思路  
+  干：列出潜在瓶颈（DB、Redis 热点、锁），对应优化（缓存粒度、索引、异步化、批处理）。  
+  面试：高并发下如何扩展。
+- Day24 八股 Q&A 编写  
+  干：覆盖登录拦截、缓存策略、秒杀、锁、异步一致性、GEO/排行、限流/幂等。  
+  面试：自测问答。
+- Day25 模拟面试 1  
+  干：30 分钟自问自答，录音回听，补漏。  
+  面试可能问：Redis 挂了怎么办？锁续期失效？消息重复消费？缓存雪崩？
+- Day26 模拟面试 2 + 场景题  
+  干：加入“Redis 超时 / 缓存击穿 / 锁失效 / MQ 堆积”等场景讨论。  
+  面试：追问的深挖题。
+- Day27 综合演示彩排  
+  干：演示发码→登录→店铺/类型→点赞/关注→秒杀→看日志。
+- Day28 最终复盘  
+  干：精简 5–10 分钟项目综述，准备深入追问（数据结构选型、锁可重入/过期、MQ 可靠性、CORS/JDK/Node 踩坑）。  
+  验证：演示全链路 + 回答追问。
+
+常见坑速查表
+- SQL 导入：报 `Invalid default value` → 用 `--init-command="SET SESSION sql_mode='STRICT_TRANS_TABLES,NO_ENGINE_SUBSTITUTION';"` 导入，或改 `begin_time/end_time` 默认值为 `CURRENT_TIMESTAMP`；库名需与 `application.yaml` 一致。
+- CORS：前端 5173/5174 访问后端 8081 报跨域 → `src/main/java/com/hmdp/config/MvcConfig.java` 已放行，重启后端。
+- Node 版本：Vite5 需 Node>=18，低版本报 rollup/crypto 错误。
+- JDK/编译：target/release=11 避免 “Unsupported class file major version 65”；运行 JDK21。全 21 时同步 pom 与 `.mvn/jvm.config`。
+- 端口：后端 8081、前端 5173/5174，冲突换端口或关占用进程。
+- 登录/验证码：看控制台 + `logs/app.log` → 查 Redis 验证码 key、token hash → 查 DB 用户表。
+- 秒杀：检查 Redis 秒杀券数据、Lua 校验、一人一单、MQ 是否运行。
+- Feed/点赞：检查 Redis ZSet/Set 是否写入；确认已登录、token 有效。

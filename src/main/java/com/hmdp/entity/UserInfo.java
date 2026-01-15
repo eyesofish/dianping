@@ -16,7 +16,7 @@ import java.time.LocalDateTime;
  * 
  * </p>
  *
- * @author 虎哥
+ * @author 俞洋
  * @since 2021-12-24
  */
 @Data
@@ -82,6 +82,5 @@ public class UserInfo implements Serializable {
      * 更新时间
      */
     private LocalDateTime updateTime;
-
 
 }
