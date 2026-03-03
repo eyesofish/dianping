@@ -23,3 +23,14 @@ Thumbs.db
 # Frontend cache (if present)
 node_modules/
 dist/
+
+# Local personal notes/scripts (do not commit)
+how_to_write_cache_warm.txt
+mysql_test.txt
+start-all.ps1
+
+# Temp files
+*.tmp
+*.temp
+*.swp
+*.swo
