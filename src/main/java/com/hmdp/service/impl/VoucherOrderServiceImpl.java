@@ -29,6 +29,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import javax.annotation.PostConstruct;
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -222,10 +223,14 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         Long userId = UserHolder.getUser().getId();
         // 获取订单id
         long orderId = redisIdWorker.nextId("order");
+
+        String stockKey = "seckill:stock:" + voucherId;
+        String orderKey = "seckill:order:" + voucherId;
+        String streamKey = "stream.orders";
         // 1.执行lua脚本
         Long result = stringRedisTemplate.execute(
                 SECKILL_SCRIPT,
-                Collections.emptyList(),
+                Arrays.asList(stockKey, orderKey, streamKey),
                 voucherId.toString(), userId.toString(), String.valueOf(orderId));
         // 2.判断结果是否为0
         int r = 0;
@@ -279,8 +284,6 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     // }
     // Long userId = UserHolder.getUser().getId();
     // //创建锁对象
-    // //SimpleRedisLock lock = new SimpleRedisLock("order:" + userId,
-    // stringRedisTemplate);
     // RLock lock = redissonClient.getLock("lock:order:" + userId);
     // //获取锁
     // boolean isLock = lock.tryLock();
