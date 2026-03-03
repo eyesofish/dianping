@@ -8,6 +8,8 @@ import com.hmdp.entity.Shop;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
+import org.redisson.api.RLock;
+import org.redisson.api.RedissonClient;
 
 import java.time.LocalDateTime;
 import java.util.concurrent.ExecutorService;
@@ -19,9 +21,11 @@ import java.util.function.Function;
 @Component
 public class CacheClient {
     private final StringRedisTemplate stringRedisTemplate;
+    private final RedissonClient redissonClient;
 
-    public CacheClient(StringRedisTemplate stringRedisTemplate) {
+    public CacheClient(StringRedisTemplate stringRedisTemplate, RedissonClient redissonClient) {
         this.stringRedisTemplate = stringRedisTemplate;
+        this.redissonClient = redissonClient;
     }
 
     public void set(String key, Object value, Long time, TimeUnit unit) {
@@ -90,52 +94,30 @@ public class CacheClient {
             // 5.1.未过期，直接返回店铺信息
             return shop;
         }
-        // 5.2.已过期，需要返回缓存重建
-        // 6.缓存重建
-        // 6.1.获取互斥锁
+        // 5.2.已过期，尝试异步缓存重建
         String lockKey = RedisConstants.LOCK_SHOP_KEY + id;
-        boolean isLock = tryLock(lockKey);
-        // 6.2.判断是否获取锁成功
-        if (isLock) {
-            // 6.3.成功，开启独立线程实现缓存重建
-            CACHE_REBUILD_EXECUTOR.submit(() -> {
-                try {
-                    // 查询数据库
-                    R r1 = dbFallback.apply(id);
-                    // 写入redis
-                    this.setWithLogicalExpire(key, r1, time, unit);
-                } catch (Exception e) {
-                    throw new RuntimeException(e);
-                } finally {
-                    // 释放锁
-                    unLock(lockKey);
+        CACHE_REBUILD_EXECUTOR.submit(() -> {
+            RLock lock = redissonClient.getLock(lockKey);
+            boolean locked = false;
+            try {
+                // watch dog 自动续期，防止重建时间超过租期
+                locked = lock.tryLock(0, TimeUnit.SECONDS);
+                if (!locked) {
+                    return;
                 }
-            });
+                R r1 = dbFallback.apply(id);
+                this.setWithLogicalExpire(key, r1, time, unit);
+            } catch (Exception e) {
+                log.error("缓存重建失败", e);
+            } finally {
+                if (locked) {
+                    lock.unlock();
+                }
+            }
+        });
 
-        }
-
-        // 6.4.返回过期的商铺信息
+        // 6.返回过期的商铺信息
         return shop;
 
-    }
-
-    /**
-     * 创建锁
-     * 
-     * @param key
-     * @return
-     */
-    private boolean tryLock(String key) {
-        Boolean flag = stringRedisTemplate.opsForValue().setIfAbsent(key, "1", 10, TimeUnit.SECONDS);
-        return BooleanUtil.isTrue(flag);
-    }
-
-    /**
-     * 封闭锁
-     * 
-     * @param key
-     */
-    private void unLock(String key) {
-        stringRedisTemplate.delete(key);
     }
 }
