@@ -7,8 +7,6 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import javax.annotation.Resource;
-
 /**
  * <p>
  * 前端控制器
@@ -20,8 +18,11 @@ import javax.annotation.Resource;
 @RestController
 @RequestMapping("/voucher-order")
 public class VoucherOrderController {
-    @Resource
-    private IVoucherOrderService voucherOrderService;
+    private final IVoucherOrderService voucherOrderService;
+
+    public VoucherOrderController(IVoucherOrderService voucherOrderService) {
+        this.voucherOrderService = voucherOrderService;
+    }
 
     @PostMapping("seckill/{id}")
     public Result seckillVoucher(@PathVariable("id") Long voucherId) {

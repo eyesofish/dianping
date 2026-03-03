@@ -7,7 +7,6 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import javax.annotation.Resource;
 import java.util.List;
 
 /**
@@ -21,8 +20,11 @@ import java.util.List;
 @RestController
 @RequestMapping("/shop-type")
 public class ShopTypeController {
-    @Resource
-    private IShopTypeService typeService;
+    private final IShopTypeService typeService;
+
+    public ShopTypeController(IShopTypeService typeService) {
+        this.typeService = typeService;
+    }
 
     @GetMapping("list")
     public Result queryTypeList() {

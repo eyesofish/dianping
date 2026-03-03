@@ -6,12 +6,12 @@ import com.hmdp.utils.CacheClient;
 import com.hmdp.utils.RedisConstants;
 import com.hmdp.utils.RedisIdWorker;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.geo.Point;
 import org.springframework.data.redis.connection.RedisGeoCommands;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
-import javax.annotation.Resource;
 import java.awt.*;
 import java.util.ArrayList;
 import java.util.List;
@@ -23,15 +23,20 @@ import static com.hmdp.utils.RedisConstants.SHOP_GEO_KEY;
 
 @SpringBootTest
 class HmDianPingApplicationTests {
-    @Resource
-    private ShopServiceImpl shopService;
+    private final ShopServiceImpl shopService;
 
-    @Resource
-    private RedisIdWorker redisIdWorker;
-    @Resource
-    private CacheClient client;
-    @Resource
-    private StringRedisTemplate stringRedisTemplate;
+    private final RedisIdWorker redisIdWorker;
+    private final CacheClient client;
+    private final StringRedisTemplate stringRedisTemplate;
+
+    @Autowired
+    HmDianPingApplicationTests(ShopServiceImpl shopService, RedisIdWorker redisIdWorker,
+            CacheClient client, StringRedisTemplate stringRedisTemplate) {
+        this.shopService = shopService;
+        this.redisIdWorker = redisIdWorker;
+        this.client = client;
+        this.stringRedisTemplate = stringRedisTemplate;
+    }
 
     private ExecutorService es= Executors.newFixedThreadPool(500);
 

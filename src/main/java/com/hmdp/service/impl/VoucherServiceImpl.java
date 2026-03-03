@@ -12,7 +12,6 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import javax.annotation.Resource;
 import java.util.List;
 
 import static com.hmdp.utils.RedisConstants.SECKILL_STOCK_KEY;
@@ -28,10 +27,13 @@ import static com.hmdp.utils.RedisConstants.SECKILL_STOCK_KEY;
 @Service
 public class VoucherServiceImpl extends ServiceImpl<VoucherMapper, Voucher> implements IVoucherService {
 
-    @Resource
-    private ISeckillVoucherService seckillVoucherService;
-    @Resource
-    private StringRedisTemplate stringRedisTemplate;
+    private final ISeckillVoucherService seckillVoucherService;
+    private final StringRedisTemplate stringRedisTemplate;
+
+    public VoucherServiceImpl(ISeckillVoucherService seckillVoucherService, StringRedisTemplate stringRedisTemplate) {
+        this.seckillVoucherService = seckillVoucherService;
+        this.stringRedisTemplate = stringRedisTemplate;
+    }
 
     @Override
     public Result queryVoucherOfShop(Long shopId) {

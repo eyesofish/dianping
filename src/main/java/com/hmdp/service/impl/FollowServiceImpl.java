@@ -13,7 +13,6 @@ import com.hmdp.utils.UserHolder;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
-import javax.annotation.Resource;
 import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
@@ -31,11 +30,14 @@ import java.util.stream.Collectors;
 @Service
 public class FollowServiceImpl extends ServiceImpl<FollowMapper, Follow> implements IFollowService {
 
-    @Resource
-    private StringRedisTemplate stringRedisTemplate;
+    private final StringRedisTemplate stringRedisTemplate;
 
-    @Resource
-    private UserServiceImpl userService;
+    private final UserServiceImpl userService;
+
+    public FollowServiceImpl(StringRedisTemplate stringRedisTemplate, UserServiceImpl userService) {
+        this.stringRedisTemplate = stringRedisTemplate;
+        this.userService = userService;
+    }
 
     @Override
     public Result follow(Long followUserId, Boolean isFollow) {

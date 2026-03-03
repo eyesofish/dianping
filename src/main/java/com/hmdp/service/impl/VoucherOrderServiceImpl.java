@@ -28,7 +28,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import javax.annotation.PostConstruct;
-import javax.annotation.Resource;
 import java.time.Duration;
 import java.util.Collections;
 import java.util.List;
@@ -51,19 +50,23 @@ import java.util.concurrent.Executors;
 public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, VoucherOrder>
         implements IVoucherOrderService {
 
-    @Resource
-    private ISeckillVoucherService seckillVoucherService;
+    private final ISeckillVoucherService seckillVoucherService;
 
-    @Resource
-    private RabbitTemplate rabbitTemplate;
-    @Resource
-    private RedisIdWorker redisIdWorker;
+    private final RabbitTemplate rabbitTemplate;
+    private final RedisIdWorker redisIdWorker;
 
-    @Resource
-    private StringRedisTemplate stringRedisTemplate;
+    private final StringRedisTemplate stringRedisTemplate;
 
-    @Resource
-    private RedissonClient redissonClient;
+    private final RedissonClient redissonClient;
+
+    public VoucherOrderServiceImpl(ISeckillVoucherService seckillVoucherService, RabbitTemplate rabbitTemplate,
+            RedisIdWorker redisIdWorker, StringRedisTemplate stringRedisTemplate, RedissonClient redissonClient) {
+        this.seckillVoucherService = seckillVoucherService;
+        this.rabbitTemplate = rabbitTemplate;
+        this.redisIdWorker = redisIdWorker;
+        this.stringRedisTemplate = stringRedisTemplate;
+        this.redissonClient = redissonClient;
+    }
 
     /**
      * 脚本初始化

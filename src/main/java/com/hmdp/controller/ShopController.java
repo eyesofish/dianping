@@ -8,8 +8,6 @@ import com.hmdp.service.IShopService;
 import com.hmdp.utils.SystemConstants;
 import org.springframework.web.bind.annotation.*;
 
-import javax.annotation.Resource;
-
 /**
  * <p>
  * 前端控制器
@@ -22,8 +20,11 @@ import javax.annotation.Resource;
 @RequestMapping("/shop")
 public class ShopController {
 
-    @Resource
-    public IShopService shopService;
+    private final IShopService shopService;
+
+    public ShopController(IShopService shopService) {
+        this.shopService = shopService;
+    }
 
     /**
      * 根据id查询商铺信息

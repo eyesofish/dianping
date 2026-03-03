@@ -5,8 +5,6 @@ import com.hmdp.entity.Voucher;
 import com.hmdp.service.IVoucherService;
 import org.springframework.web.bind.annotation.*;
 
-import javax.annotation.Resource;
-
 /**
  * <p>
  * 前端控制器
@@ -19,8 +17,11 @@ import javax.annotation.Resource;
 @RequestMapping("/voucher")
 public class VoucherController {
 
-    @Resource
-    private IVoucherService voucherService;
+    private final IVoucherService voucherService;
+
+    public VoucherController(IVoucherService voucherService) {
+        this.voucherService = voucherService;
+    }
 
     /**
      * 新增普通券

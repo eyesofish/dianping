@@ -11,6 +11,7 @@ import lombok.Builder;
 import lombok.SneakyThrows;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
@@ -18,7 +19,6 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers;
 
-import javax.annotation.Resource;
 import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -34,14 +34,18 @@ import java.util.stream.Collectors;
 @AutoConfigureMockMvc
 class VoucherOrderControllerTest {
 
-    @Resource
-    private MockMvc mockMvc;
+    private final MockMvc mockMvc;
 
-    @Resource
-    private IUserService userService;
+    private final IUserService userService;
 
-    @Resource
-    private ObjectMapper mapper;
+    private final ObjectMapper mapper;
+
+    @Autowired
+    VoucherOrderControllerTest(MockMvc mockMvc, IUserService userService, ObjectMapper mapper) {
+        this.mockMvc = mockMvc;
+        this.userService = userService;
+        this.mapper = mapper;
+    }
 
 
 

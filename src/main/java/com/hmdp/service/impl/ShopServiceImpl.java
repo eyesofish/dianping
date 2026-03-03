@@ -26,7 +26,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import javax.annotation.Generated;
-import javax.annotation.Resource;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.Executor;
@@ -48,11 +47,14 @@ import static com.hmdp.utils.RedisConstants.*;
 @Service
 public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IShopService {
 
-    @Resource
-    private StringRedisTemplate stringRedisTemplate;
+    private final StringRedisTemplate stringRedisTemplate;
 
-    @Resource
-    private CacheClient clientClient;
+    private final CacheClient clientClient;
+
+    public ShopServiceImpl(StringRedisTemplate stringRedisTemplate, CacheClient clientClient) {
+        this.stringRedisTemplate = stringRedisTemplate;
+        this.clientClient = clientClient;
+    }
 
     @Override
     public Result queryById(Long id) {

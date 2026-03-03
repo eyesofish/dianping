@@ -9,14 +9,9 @@ import com.hmdp.entity.UserInfo;
 import com.hmdp.service.IUserInfoService;
 import com.hmdp.service.IUserService;
 import com.hmdp.utils.UserHolder;
-import io.reactivex.Single;
-import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.web.bind.annotation.*;
 
-import javax.annotation.Resource;
 import javax.servlet.http.HttpSession;
 
 /**
@@ -32,14 +27,14 @@ import javax.servlet.http.HttpSession;
 @RequestMapping("/user")
 public class UserController {
 
-    @Resource
-    private IUserService userService;
+    private final IUserService userService;
 
-    @Resource
-    private IUserInfoService userInfoService;
+    private final IUserInfoService userInfoService;
 
-    @Autowired
-    private StringRedisTemplate redisTemplate;
+    public UserController(IUserService userService, IUserInfoService userInfoService) {
+        this.userService = userService;
+        this.userInfoService = userInfoService;
+    }
 
     /**
      * 发送手机验证码

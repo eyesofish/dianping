@@ -1,30 +1,31 @@
 package com.hmdp.service;
 
-import cn.hutool.json.JSONUtil;
 import com.hmdp.entity.Shop;
 import com.hmdp.entity.ShopType;
 import com.hmdp.utils.RedisConstants;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
-import javax.annotation.Resource;
-
 @Service
 @Slf4j
 public class CacheWarmUpService {
-    @Resource
-    private IShopService shopService;
-    @Resource
-    private IShopTypeService shopTypeService;
-    @Resource
-    private StringRedisTemplate stringRedisTemplate;
-    @Resource
-    private com.hmdp.utils.CacheClient cacheClient; // 复用逻辑过期格式
+
+    private final IShopService shopService;
+
+    private final IShopTypeService shopTypeService;
+
+    private final com.hmdp.utils.CacheClient cacheClient; // 复用逻辑过期格式
+
+    public CacheWarmUpService(IShopService shopService, IShopTypeService shopTypeService,
+            com.hmdp.utils.CacheClient cacheClient) {
+        this.shopService = shopService;
+        this.shopTypeService = shopTypeService;
+        this.cacheClient = cacheClient;
+
+    }
 
     public void warmUpShopCache() {
         log.info("开始执行商铺缓存预热");

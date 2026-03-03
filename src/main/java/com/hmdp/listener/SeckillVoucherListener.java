@@ -11,17 +11,13 @@ import org.springframework.amqp.core.Message;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.stereotype.Component;
 
-import javax.annotation.Resource;
-
 @Component
 @RequiredArgsConstructor
 @Slf4j
 public class SeckillVoucherListener {
 
-    @Resource
-    SeckillVoucherServiceImpl seckillVoucherService;
-    @Resource
-    VoucherOrderServiceImpl voucherOrderService;
+    private final SeckillVoucherServiceImpl seckillVoucherService;
+    private final VoucherOrderServiceImpl voucherOrderService;
     /**
      * sheng  消费者1
      * @param message

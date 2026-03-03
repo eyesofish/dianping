@@ -22,7 +22,6 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.stereotype.Service;
 
-import javax.annotation.Resource;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -45,14 +44,18 @@ import static com.hmdp.utils.RedisConstants.FEED_KEY;
 @Service
 public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IBlogService {
 
-    @Resource
-    private IUserService userService;
+    private final IUserService userService;
 
-    @Resource
-    private IFollowService followService;
+    private final IFollowService followService;
 
-    @Resource
-    private StringRedisTemplate stringRedisTemplate;
+    private final StringRedisTemplate stringRedisTemplate;
+
+    public BlogServiceImpl(IUserService userService, IFollowService followService,
+            StringRedisTemplate stringRedisTemplate) {
+        this.userService = userService;
+        this.followService = followService;
+        this.stringRedisTemplate = stringRedisTemplate;
+    }
 
     @Override
     public Result queryHotBlog(Integer current) {
