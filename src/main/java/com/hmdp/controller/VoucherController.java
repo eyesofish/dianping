@@ -31,7 +31,10 @@ public class VoucherController {
      */
     @PostMapping
     public Result addVoucher(@RequestBody Voucher voucher) {
-        voucherService.addSeckillVoucher(voucher);
+        boolean saved = voucherService.save(voucher);
+        if (!saved) {
+            return Result.fail("新增普通券失败");
+        }
         return Result.ok(voucher.getId());
     }
 
