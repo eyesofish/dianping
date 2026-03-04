@@ -1,8 +1,9 @@
 package com.hmdp.service.impl;
 
-import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.json.JSONUtil;
 import com.hmdp.dto.Result;
+import com.hmdp.dto.UserDTO;
+import com.hmdp.dto.VoucherOrderStatusDTO;
 import com.hmdp.entity.VoucherOrder;
 import com.hmdp.mapper.VoucherOrderMapper;
 import com.hmdp.service.ISeckillVoucherService;
@@ -10,33 +11,17 @@ import com.hmdp.service.IVoucherOrderService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.utils.RedisIdWorker;
 import com.hmdp.utils.UserHolder;
-import com.rabbitmq.client.Channel;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.ibatis.javassist.bytecode.stackmap.BasicBlock;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
-import org.springframework.amqp.core.Message;
-import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
-import org.springframework.aop.framework.AopContext;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.ClassPathResource;
-import org.springframework.data.redis.connection.stream.*;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import javax.annotation.PostConstruct;
-import java.time.Duration;
 import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 /**
  * <p>
@@ -262,6 +247,59 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         }
         // 3. 返回订单号给前端（实际下单异步处理）
         return Result.ok(orderId);
+    }
+
+    @Override
+    public Result queryOrderById(Long orderId) {
+        UserDTO currentUser = UserHolder.getUser();
+        VoucherOrder order = getById(orderId);
+        if (order == null) {
+            VoucherOrderStatusDTO statusDTO = new VoucherOrderStatusDTO();
+            statusDTO.setOrderId(orderId);
+            statusDTO.setDbExists(false);
+            statusDTO.setProcessing(true);
+            statusDTO.setStatus(0);
+            statusDTO.setStatusDesc("PENDING");
+            statusDTO.setMessage("订单正在异步处理或不存在");
+            return Result.ok(statusDTO);
+        }
+        if (!order.getUserId().equals(currentUser.getId())) {
+            return Result.fail("无权查看该订单");
+        }
+        VoucherOrderStatusDTO statusDTO = new VoucherOrderStatusDTO();
+        statusDTO.setOrderId(order.getId());
+        statusDTO.setUserId(order.getUserId());
+        statusDTO.setVoucherId(order.getVoucherId());
+        statusDTO.setStatus(order.getStatus());
+        statusDTO.setStatusDesc(resolveStatusDesc(order.getStatus()));
+        statusDTO.setDbExists(true);
+        statusDTO.setProcessing(false);
+        statusDTO.setMessage("订单已落库");
+        statusDTO.setCreateTime(order.getCreateTime());
+        statusDTO.setUpdateTime(order.getUpdateTime());
+        return Result.ok(statusDTO);
+    }
+
+    private String resolveStatusDesc(Integer status) {
+        if (status == null) {
+            return "UNKNOWN";
+        }
+        switch (status) {
+            case 1:
+                return "UNPAID";
+            case 2:
+                return "PAID";
+            case 3:
+                return "VERIFIED";
+            case 4:
+                return "CANCELLED";
+            case 5:
+                return "REFUNDING";
+            case 6:
+                return "REFUNDED";
+            default:
+                return "UNKNOWN";
+        }
     }
 
     // public Result seckillVoucher(Long voucherId) {
