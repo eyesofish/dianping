@@ -22,6 +22,8 @@ public class MvcConfig implements WebMvcConfigurer {
                 registry.addMapping("/**")
                                 .allowedOrigins("http://localhost:5173", "http://localhost:5174")
                                 .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
+                                .allowedHeaders("*")
+                                .exposedHeaders("Authorization")
                                 .allowCredentials(true)
                                 .maxAge(3600);
         }
@@ -31,6 +33,7 @@ public class MvcConfig implements WebMvcConfigurer {
                 // 登录拦截器
                 registry.addInterceptor(new LoginInterceptor())
                                 .excludePathPatterns(
+                                                "/dev/login",
                                                 "/user/login",
                                                 "/upload/**",
                                                 "/voucher/**",
