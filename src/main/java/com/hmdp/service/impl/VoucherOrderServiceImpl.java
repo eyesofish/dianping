@@ -1,6 +1,7 @@
 package com.hmdp.service.impl;
 
 import cn.hutool.json.JSONUtil;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.hmdp.dto.Result;
 import com.hmdp.dto.UserDTO;
 import com.hmdp.dto.VoucherOrderStatusDTO;
@@ -10,6 +11,7 @@ import com.hmdp.service.ISeckillVoucherService;
 import com.hmdp.service.IVoucherOrderService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.utils.RedisIdWorker;
+import com.hmdp.utils.SystemConstants;
 import com.hmdp.utils.UserHolder;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
@@ -22,6 +24,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * <p>
@@ -278,6 +282,32 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         statusDTO.setCreateTime(order.getCreateTime());
         statusDTO.setUpdateTime(order.getUpdateTime());
         return Result.ok(statusDTO);
+    }
+
+    @Override
+    public Result queryOrderOfMe(Integer current, Integer pageSize) {
+        UserDTO currentUser = UserHolder.getUser();
+        if (currentUser == null) {
+            return Result.fail("Unauthorized");
+        }
+        long pageNo = (current == null || current < 1) ? 1L : current.longValue();
+        long size = SystemConstants.DEFAULT_PAGE_SIZE;
+        if (pageSize != null && pageSize > 0) {
+            size = Math.min(pageSize.longValue(), SystemConstants.MAX_PAGE_SIZE);
+        }
+
+        Page<VoucherOrder> page = query()
+                .eq("user_id", currentUser.getId())
+                .orderByDesc("create_time")
+                .page(new Page<>(pageNo, size));
+
+        Map<String, Object> data = new HashMap<>();
+        data.put("records", page.getRecords());
+        data.put("total", page.getTotal());
+        data.put("current", page.getCurrent());
+        data.put("pageSize", page.getSize());
+        data.put("pages", page.getPages());
+        return Result.ok(data);
     }
 
     private String resolveStatusDesc(Integer status) {
