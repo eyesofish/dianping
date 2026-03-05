@@ -1,220 +1,87 @@
+# TODO 状态总览（截至 2026-03-05）
 
-2026.1.4
-问题1.D:\Github\dianping\src\main\java\com\hmdp\utils\CacheClient.java 里分布式锁的实现很差，需要重构，使用watch dog 或者Redission 实现分布式锁。
-//已完成
-2026.1.14 
-问题2.没有看到类似 CommandLineRunner / ApplicationRunner 的启动预热类；主代码里也没有 @PostConstruct 做缓存预热（只有一处注释掉的 @PostConstruct）。
-目前项目里的“预热”逻辑只在测试里：
+说明：本文件按你原来的问题 1~9 逐条核对当前代码，标记为 `已完成` / `部分完成` / `未完成`。
 
-ShopCacheTest.java (line 28) 通过 testCacheAllShops 把所有店铺写入 Redis
-ShopServiceImpl.java (line 237) 有 saveShop2Redis 可做单店铺预热，但未在启动时调用 
+---
 
+## 已完成
 
-需要给项目增加缓存预热的逻辑
-//已经完成
+1. 问题1（CacheClient 分布式锁重构，使用 Redisson / watch dog）
+- 状态：已完成
+- 证据：
+  - `src/main/java/com/hmdp/utils/CacheClient.java`
+  - 使用 `RedissonClient` + `RLock`，在缓存重建逻辑里 `tryLock(0, TimeUnit.SECONDS)`，由 Redisson 管理锁续期。
 
-问题3.现在构造器用的是@Resource  ，需要改成构造器注入
-//已完成
-问题4.现在的脚本的keys是写死在lua里的，需要改成参数化，具体在D:\Github\dianping\src\main\java\com\hmdp\service\impl\VoucherOrderServiceImpl.java的223行
-【问题4 傻瓜教程：Lua 传参到底怎么用（按你当前项目）】
+2. 问题2（项目启动缓存预热）
+- 状态：已完成
+- 证据：
+  - `src/main/java/com/hmdp/runner/CacheWarmUpRunner.java`（`CommandLineRunner`）
+  - `src/main/java/com/hmdp/service/CacheWarmUpService.java`（`warmUpShopCache()`）
 
-先记住一条就行：
-- Java 里 `execute(script, keys, args...)`
-- Lua 里：
-  - `KEYS[1..n]` 对应 Java 传入的 `keys` 列表
-  - `ARGV[1..n]` 对应 Java 传入的 `args...`
+3. 问题3（去掉 `@Resource`，改为构造器注入）
+- 状态：已完成
+- 证据：
+  - 主代码中已无 `@Resource`（全局搜索）。
+- 备注：
+  - 仍有 1 处字段注入：`CacheWarmUpRunner` 使用 `@Autowired` 字段注入，建议后续也改成构造器注入（非阻塞问题）。
 
-你当前代码现状：
-1) Java 调用（VoucherOrderServiceImpl）：
-   - `stringRedisTemplate.execute(SECKILL_SCRIPT, Collections.emptyList(), voucherId, userId, orderId)`
-   - 这里 `keys` 是空，所以 Lua 里只能用 `ARGV`
-2) Lua 脚本（src/main/resources/seckill.lua）：
-   - 用 `voucherId` 去拼 key：`seckill:stock:`、`seckill:order:`
-   - `stream.orders` 也写死在脚本里
+4. 问题4（Lua keys 参数化）
+- 状态：已完成
+- 证据：
+  - `src/main/java/com/hmdp/service/impl/VoucherOrderServiceImpl.java`
+    - `stringRedisTemplate.execute(SECKILL_SCRIPT, Arrays.asList(stockKey, orderKey, streamKey), ...)`
+  - `src/main/resources/seckill.lua`
+    - 使用 `KEYS[1..3]` 获取 `stockKey/orderKey/streamKey`，不再在 Lua 中硬编码 key。
 
-所谓“keys 参数化”就是：
-- 不在 Lua 里拼/写死 key 名
-- 改成由 Java 先把 key 算好，再传进 Lua 的 `KEYS`
+7. 问题7（RefreshTokenInterceptor ThreadLocal 清理）
+- 状态：已完成
+- 证据：
+  - `src/main/java/com/hmdp/interceptor/RefreshTokenInterceptor.java`
+  - 已实现 `afterCompletion()` 并调用 `UserHolder.removeUser()`。
 
-标准改法（推荐）：
+---
 
-Java 侧（传 KEYS + ARGV）：
-```java
-String stockKey = "seckill:stock:" + voucherId;
-String orderKey = "seckill:order:" + voucherId;
-String streamKey = "stream.orders";
+## 部分完成
 
-Long result = stringRedisTemplate.execute(
-        SECKILL_SCRIPT,
-        Arrays.asList(stockKey, orderKey, streamKey),
-        userId.toString(), voucherId.toString(), String.valueOf(orderId));
-```
+6. 问题6（MQ 消费稳定性、重试/死信、重复下单风险）
+- 状态：部分完成
+- 已完成部分：
+  - `QA/QD` 消费者已统一接入 `handleVoucherOrder()`，锁逻辑进入主消费链路。
+  - 证据：`src/main/java/com/hmdp/listener/SeckillVoucherListener.java`
+- 未完成部分：
+  - 未看到显式的 ACK 策略配置（如手动 ACK / 自定义重试策略）。
+  - 未看到“死信队列消费前按 `orderId` 幂等检查”的专门逻辑。
+  - 未看到订单表唯一约束（如 `user_id + voucher_id`）在代码/迁移中明确落地。
 
-Lua 侧（不再写死 key）：
-```lua
-local stockKey = KEYS[1]
-local orderKey = KEYS[2]
-local streamKey = KEYS[3]
+---
 
-local userId = ARGV[1]
-local voucherId = ARGV[2]
-local orderId = ARGV[3]
+## 未完成
 
-local stock = tonumber(redis.call('get', stockKey))
-if stock == nil then
-    return -1
-end
-if stock <= 0 then
-    return 1
-end
-if redis.call('sismember', orderKey, userId) == 1 then
-    return 2
-end
-redis.call('incrby', stockKey, -1)
-redis.call('sadd', orderKey, userId)
-redis.call('xadd', streamKey, '*', 'userId', userId, 'voucherId', voucherId, 'id', orderId)
-return 0
-```
+5. 问题5（MQ 丢消息兜底：pending 集合 + 定时补偿）
+- 状态：未完成
+- 现状：
+  - 未发现 `seckill:pending:order` 集合写入/删除逻辑。
+  - 未发现 `@Scheduled` 补偿任务。
 
-你只要这样理解就不会乱：
-- “和 Redis key 相关的参数”放 `KEYS`
-- “业务值参数（userId、orderId 等）”放 `ARGV`
+8. 问题8（Shop 新增/更新时同步写入 GEO）
+- 状态：未完成
+- 现状：
+  - `ShopController.saveShop()` 只写 DB。
+  - `ShopServiceImpl.update()` 只做 DB 更新 + 删除缓存，未同步 GEO。
+  - 查询 `shop/of/type` 的 GEO 路径依赖 `shop:geo:<typeId>`，但写入链路缺失。
 
-改完后的收益：
-- key 不硬编码，脚本可复用
-- 多环境/改前缀更容易
-- 结构更清晰，排查问题更快
-//已完成
-问题5.unlock lua根本没用到
+9. 问题9（前端保存商铺时缺地址/坐标）
+- 状态：未完成
+- 现状：
+  - 当前前端页面没有商铺新增/编辑页（`frontend/hmdp/src/pages` 无对应页面）。
+  - “地址 + 地图选点 + 提交 lng/lat”的链路尚未接入。
 
-问题5：防止RabbitMQ 丢消息，订单可能只存在 Redis。所以我增加了兜底机制
+---
 
+10.把imple 类对象都改成父类引用形式，例如：`ShopServiceImpl` -> `ShopService`
 
-“黑马点评这里 MQ 是尽力而为的，
-如果 MQ 丢消息，订单可能只存在 Redis。
-我在这里加了一个本地兜底记录 + 定时补偿。”
+## 下一步优先级建议
 
-这句话一说，
-你已经和“照抄党”拉开档次了。
-
-具体你应该怎么改（非常简单）
-第一步：在秒杀成功后，多做一件“小事”
-
-不是改主流程，只是多记一笔。
-
-比如在 Redis 里加一个 Set / ZSet：
-
-// 秒杀成功后
-stringRedisTemplate.opsForSet()
-    .add("seckill:pending:order", orderId.toString());
-
-
-含义一句话：
-
-“这笔订单还没确认写进 DB。”
-
-第二步：消费者写 DB 成功后，把它删掉
-// DB 写订单成功
-stringRedisTemplate.opsForSet()
-    .remove("seckill:pending:order", orderId.toString());
-
-
-这一步是关键：
-
-DB 成功 = 真正完成
-
-第三步：加一个定时任务（10 行代码级别）
-@Scheduled(fixedDelay = 60000)
-public void fixLostOrders() {
-    Set<String> orderIds =
-        stringRedisTemplate.opsForSet()
-            .members("seckill:pending:order");
-
-    for (String orderId : orderIds) {
-        // 查 DB 是否有订单
-        if (!orderExistsInDB(orderId)) {
-            // 补写订单 or 重新发 MQ
-        }
-    }
-}
-
-
-这就够了。
-
-“我没改 MQ 结构，
-只是在业务层加了一个 pending 订单集合。
-下单成功先记一笔，
-DB 写成功再删除，
-定时任务兜底补偿 MQ 丢消息的情况。
-这是最小侵入、最终一致的方案。”
-
-
-问题6.D:\Github\dianping\src\main\java\com\hmdp\listener\SeckillVoucherListener.java 中
-目前秒杀订单的 MQ 消费采用默认 AUTO_ACK，
-如果数据库写入或库存更新异常，会触发消息无限重试；
-同时死信队列被当作正常队列处理，存在重复下单风险。
-
-改进方案是：
-
-正常队列消费失败时显式抛异常，让 MQ 接管重试；
-
-死信队列消费前先根据 orderId 查数据库，已存在则直接丢弃；
-
-保证订单表唯一键幂等，避免重复写入。
-
-该方案不引入复杂事务，仅通过最小改动提高系统稳定性和可解释性。
-
-
-问题7.D:\Github\dianping\src\main\java\com\hmdp\interceptor\RefreshTokenInterceptor.java 中内存泄漏 关于ThreadLocal没有在最后remove掉
-是的，这个拦截器现在没有 remove，
-在 Spring Boot 的线程池模型下，
-会导致 ThreadLocal 泄漏和严重的用户串号风险。
-正确做法是在 afterCompletion 中无条件调用 UserHolder.removeUser()。
-
-问题8：没有写入GEO
-表现：按地理坐标搜索（/shop/of/type 带 x,y）只查 Redis GEO，不写 GEO 的店铺会搜不出来。
-原因：ShopController.saveShop / ShopServiceImpl.update 只写 MySQL，未同步 SHOP_GEO_KEY + typeId。
-补救：
-- 新增/更新店铺时 GEOADD shop:geo:<typeId> <x> <y> <shopId>
-- typeId 或坐标变化时先从旧 key 移除，再写入新 key
-- 或写启动预热/初始化脚本，批量从 tb_shop 导入 GEO
-问题9：前端保存商铺信息的时候，没有地址信息
-最推荐的方案：地址 + 地图选点（Pin）
-流程（最常见、最好用）
-
-老板在前端填：省市区 + 详细地址（比如“XX路XX号XX大厦”）
-
-前端接入地图控件（高德/百度/Google/Mapbox…）让老板搜索地址
-
-地图上出现一个点，老板拖一拖/点一下确认（因为地址解析偶尔会偏）
-
-提交给后端：
-
-address（文本）
-
-lng/lat（经纬度）
-
-可选：adcode/citycode（行政区编码，方便筛选）
-
-你后端怎么存
-
-MySQL：存店铺基础信息 + x(lng), y(lat)（你代码里就是 x/y）
-
-Redis：保存成功后 GEOADD shop:geo:<typeId> lng lat shopId
-
-✅ 优点：精度高、体验好、老板也能理解
-⚠️ 注意：要做“确认点”这一步，不要只靠自动解析
-完整链路改造（无代码，后续按此补）：
-1) 前端表单
-   - 增加地址字段：省/市/区 + 详细地址
-   - 增加地图选点控件：搜索地址 -> 自动定位 -> 人工确认点
-   - 保存时提交：address + x(lng) + y(lat) + typeId (+ adcode/citycode)
-2) 后端接口
-   - POST /shop 保存：校验 address/x/y 不为空，成功后写 Redis GEO
-   - PUT /shop 更新：比较旧 typeId/x/y，变更则移除旧 GEO 再写新 GEO
-3) Redis GEO 同步
-   - 新增：GEOADD shop:geo:<typeId> <x> <y> <shopId>
-   - 更新：旧 key ZREM shop:geo:<oldTypeId> <shopId>，新 key 再 GEOADD
-4) 数据一致性
-   - DB 成功后再写 Redis，失败记录日志便于补偿
-   - 如有批量店铺，可启动时从 tb_shop 重建 GEO
+1. 先做问题8（GEO 写入链路），否则附近搜索结果会长期不准。
+2. 再做问题5（MQ 丢消息兜底），提高秒杀订单最终一致性。
+3. 最后补问题6剩余项（ACK 策略 + 死信幂等 + DB 唯一约束）。

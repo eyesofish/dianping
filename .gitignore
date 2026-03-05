@@ -28,6 +28,11 @@ dist/
 how_to_write_cache_warm.txt
 mysql_test.txt
 start-all.ps1
+week2.txt
+week3.txt
+week4.txt
+interfaceDocForFrontend.txt
+interfaceToVue.txt
 
 # Temp files
 *.tmp

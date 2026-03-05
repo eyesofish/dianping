@@ -16,6 +16,7 @@ import com.hmdp.utils.UserHolder;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
+import org.springframework.aop.framework.AopContext;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -179,6 +180,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
      * }
      */
 
+    @Override
     public void handleVoucherOrder(VoucherOrder voucherOrder) {
         // 1.获取用户
         Long userId = voucherOrder.getUserId();
@@ -195,6 +197,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         try {
             // 直接调用，不会触发spring aop的事务管理
             // 要通过代理调用，获取代理对象，才会被spring aop拦截
+            IVoucherOrderService proxy = (IVoucherOrderService) AopContext.currentProxy();
             proxy.createVoucherOrder(voucherOrder);
         } catch (IllegalStateException e) {
             throw new RuntimeException(e);
@@ -203,8 +206,6 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
             lock.unlock();
         }
     }
-
-    private IVoucherOrderService proxy;
 
     @Override
     public Result seckillVoucher(Long voucherId) {
@@ -228,7 +229,16 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         }
         if (r != 0) {
             // 2.1.不为0，代表没有购买资格
-            return Result.fail(r == 1 ? "库存不足" : "不能重复下单");
+            if (r == -1) {
+                return Result.fail("秒杀库存未初始化，请联系管理员");
+            }
+            if (r == 1) {
+                return Result.fail("库存不足");
+            }
+            if (r == 2) {
+                return Result.fail("不能重复下单");
+            }
+            return Result.fail("下单失败，请稍后重试");
         }
         // //3.获取代理对象
         // proxy = (IVoucherOrderService) AopContext.currentProxy();
