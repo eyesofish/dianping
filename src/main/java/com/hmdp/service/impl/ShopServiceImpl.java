@@ -84,6 +84,20 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
         if (shop.getTypeId() == null) {
             return Result.fail("Shop type is required");
         }
+        // Frontend shop editor currently submits the minimal fields, so fill
+        // non-null DB columns that have no default values.
+        if (StrUtil.isBlank(shop.getImages())) {
+            shop.setImages("");
+        }
+        if (shop.getSold() == null) {
+            shop.setSold(0);
+        }
+        if (shop.getComments() == null) {
+            shop.setComments(0);
+        }
+        if (shop.getScore() == null) {
+            shop.setScore(0);
+        }
 
         fillCoordinateIfNecessary(shop, null);
         if (shop.getX() == null || shop.getY() == null) {
