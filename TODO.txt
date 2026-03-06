@@ -22,8 +22,7 @@
 - 状态：已完成
 - 证据：
   - 主代码中已无 `@Resource`（全局搜索）。
-- 备注：
-  - `CacheWarmUpRunner` 仍是 `@Autowired` 字段注入，建议后续改为构造器注入（非阻塞）。
+  - `CacheWarmUpRunner` 已改为构造器注入。
 
 4. 问题4（Lua keys 参数化）
 - 状态：已完成
@@ -54,6 +53,24 @@
   - `src/main/java/com/hmdp/interceptor/RefreshTokenInterceptor.java`
   - 已实现 `afterCompletion()` 并调用 `UserHolder.removeUser()`。
 
+8. 问题8（Shop 新增/更新时同步写入 GEO）
+- 状态：已完成（后端链路）
+- 证据：
+  - `src/main/java/com/hmdp/controller/ShopController.java`
+    - `saveShop()` 已改为走 `shopService.saveShop(shop)`。
+  - `src/main/java/com/hmdp/service/IShopService.java`
+    - 新增 `saveShop(Shop shop)` 接口。
+  - `src/main/java/com/hmdp/service/impl/ShopServiceImpl.java`
+    - 新增时：DB 落库后写入 `shop:geo:{typeId}`。
+    - 更新时：同步更新 GEO，类型变更时会从旧类型 GEO 移除并写入新类型 GEO。
+    - 当未传 `x/y` 时，调用高德 geocode（address + city）解析坐标。
+  - `src/main/resources/application.yaml`
+    - 已配置 `amap.web-api-key`。
+- 验收待执行：
+  - [ ] 新增商铺后，Redis `shop:geo:{typeId}` 中可查到对应 `shopId`
+  - [ ] 更新商铺地址后，`shop/of/type` 距离结果随坐标变化
+  - [ ] 更新商铺 `typeId` 后，旧 GEO key 中移除、新 GEO key 中新增
+
 ---
 
 ## 部分完成
@@ -83,12 +100,6 @@
 
 ## 未完成
 
-8. 问题8（Shop 新增/更新时同步写入 GEO）
-- 状态：未完成
-- 现状：
-  - `ShopController.saveShop()` 只写 DB。
-  - `ShopServiceImpl.update()` 只做 DB 更新 + 删除缓存，未同步 GEO。
-
 9. 问题9（前端保存商铺时缺地址/坐标）
 - 状态：未完成
 - 现状：
@@ -104,6 +115,6 @@
 
 ## 下一步优先级建议
 
-1. 先做问题8（GEO 写入链路），避免附近搜索长期不准。
-2. 再做问题6剩余项（ACK 策略、confirm/return、prefetch）。
-3. 最后做问题9和问题10（前端商铺编辑链路 + 依赖接口化整改）。
+1. 先做问题6剩余项（ACK 策略、confirm/return、prefetch）。
+2. 再做问题9（前端商铺编辑页 + 地址选点 + 坐标回填）。
+3. 最后做问题10（依赖接口化整改的全量巡检）。

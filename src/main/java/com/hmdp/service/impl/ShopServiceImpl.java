@@ -1,251 +1,101 @@
 package com.hmdp.service.impl;
 
-import cn.hutool.core.bean.BeanUtil;
-import cn.hutool.core.util.BooleanUtil;
 import cn.hutool.core.util.StrUtil;
+import cn.hutool.http.HttpRequest;
+import cn.hutool.json.JSONArray;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.dto.Result;
 import com.hmdp.entity.Shop;
 import com.hmdp.mapper.ShopMapper;
 import com.hmdp.service.IShopService;
-import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.utils.CacheClient;
-import com.hmdp.utils.RedisConstants;
 import com.hmdp.utils.RedisData;
 import com.hmdp.utils.SystemConstants;
-import org.springframework.dao.IncorrectResultSizeDataAccessException;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.geo.Distance;
 import org.springframework.data.geo.GeoResult;
 import org.springframework.data.geo.GeoResults;
+import org.springframework.data.geo.Point;
 import org.springframework.data.redis.connection.RedisGeoCommands;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.domain.geo.GeoReference;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.util.UriComponentsBuilder;
 
-import javax.annotation.Generated;
 import java.time.LocalDateTime;
-import java.util.*;
-import java.util.concurrent.Executor;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.LongStream;
 
-import static com.hmdp.utils.RedisConstants.*;
+import static com.hmdp.utils.RedisConstants.CACHE_SHOP_KEY;
+import static com.hmdp.utils.RedisConstants.CACHE_SHOP_TTL;
+import static com.hmdp.utils.RedisConstants.SHOP_GEO_KEY;
 
-/**
- * <p>
- * 服务实现类
- * </p>
- *
- * @author 俞洋
- * @since 2025-12-22
- */
 @Service
+@Slf4j
 public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IShopService {
 
+    private static final String AMAP_GEOCODE_URL = "https://restapi.amap.com/v3/geocode/geo";
+
     private final StringRedisTemplate stringRedisTemplate;
+    private final CacheClient cacheClient;
+    private final String amapWebApiKey;
 
-    private final CacheClient clientClient;
-
-    public ShopServiceImpl(StringRedisTemplate stringRedisTemplate, CacheClient clientClient) {
+    public ShopServiceImpl(StringRedisTemplate stringRedisTemplate, CacheClient cacheClient,
+            @Value("${amap.web-api-key:}") String amapWebApiKey) {
         this.stringRedisTemplate = stringRedisTemplate;
-        this.clientClient = clientClient;
+        this.cacheClient = cacheClient;
+        this.amapWebApiKey = amapWebApiKey;
     }
 
     @Override
     public Result queryById(Long id) {
-        /*
-         * 缓存穿透
-         * //Shop shop = queryWithPassThrough(id);
-         * //Shop shop = clientClient
-         * // .queryWithPassThrough(RedisConstants.CACHE_SHOP_KEY, id, Shop.class,
-         * this::getById, RedisConstants.CACHE_SHOP_TTL, TimeUnit.MINUTES);
-         * 
-         * //互斥锁解决缓存击穿
-         * // Shop shop = queryWithMutex(id);
-         * // if(shop==null){
-         * // return Result.fail("店铺不存在！");
-         * // }
-         */
-
-        // 用逻辑过期解决缓存击穿
-        // Shop shop = queryWithLogicalExpire(id);
-        Shop shop = clientClient.queryWithLogicalExpire(CACHE_SHOP_KEY, id, Shop.class, this::getById, CACHE_SHOP_TTL,
-                TimeUnit.MINUTES);
+        Shop shop = cacheClient.queryWithLogicalExpire(
+                CACHE_SHOP_KEY, id, Shop.class, this::getById, CACHE_SHOP_TTL, TimeUnit.MINUTES);
         if (shop == null) {
-
-            return Result.fail("店铺不存在！");
+            return Result.fail("Shop not found");
         }
         return Result.ok(shop);
-
     }
 
-    private static final ExecutorService CACHE_REBUILD_EXECUTOR = Executors.newFixedThreadPool(10);
-
-    /*
-     * public Shop queryWithLogicalExpire(Long id) {
-     * // //1.尝试从Redis查询商铺缓存
-     * // String shopJson =
-     * stringRedisTemplate.opsForValue().get(RedisConstants.CACHE_SHOP_KEY + id);
-     * // //2.判断缓存是否存在
-     * // if(StrUtil.isBlank(shopJson)) { //判断字符串既不为null，也不是空字符串(""),且也不是空白字符
-     * // //3.不存在，返回商铺信息
-     * // return null;
-     * //
-     * // }
-     * //
-     * // //4.存在，将json反序列化为对象
-     * // RedisData redisData = JSONUtil.toBean(shopJson, RedisData.class);
-     * // Shop shop = JSONUtil.toBean((JSONObject) redisData.getData(), Shop.class);
-     * // LocalDateTime expireTime = redisData.getExpireTime();
-     * // //5.判断是否过期
-     * // if(expireTime.isAfter(LocalDateTime.now())) {
-     * // //5.1.未过期，直接返回店铺信息
-     * // return shop;
-     * // }
-     * // //5.2.已过期，需要返回缓存重建
-     * // //6.缓存重建
-     * // //6.1.获取互斥锁
-     * // String lockKey=RedisConstants.LOCK_SHOP_KEY+id;
-     * // boolean isLock = tryLock(lockKey);
-     * // //6.2.判断是否获取锁成功
-     * // if(isLock){
-     * // // 6.3.成功，开启独立线程实现缓存重建
-     * // CACHE_REBUILD_EXECUTOR.submit(()->{
-     * // try {
-     * // //重建缓存
-     * // this.saveShop2Redis(id,20L);
-     * // } catch (Exception e) {
-     * // throw new RuntimeException(e);
-     * // }finally {
-     * // //释放锁
-     * // unLock(lockKey);
-     * // }
-     * // });
-     * //
-     * // }
-     * //
-     * // //6.4.返回过期的商铺信息
-     * // return shop;
-     * //
-     * // }
-     * /**
-     * 互斥锁解决缓存穿透
-     * 
-     * @param id
-     * 
-     * @return
-     * 
-     * @throws InterruptedException
-     */
-    /*
-     * public Shop queryWithMutex(Long id) throws InterruptedException {
-     * //1.尝试从Redis查询商铺缓存
-     * String shopJson =
-     * stringRedisTemplate.opsForValue().get(RedisConstants.CACHE_SHOP_KEY + id);
-     * //2.判断缓存是否存在
-     * if(StrUtil.isNotBlank(shopJson)) { //判断字符串既不为null，也不是空字符串(""),且也不是空白字符
-     * //3.存在，返回商铺信息
-     * return JSONUtil.toBean(shopJson, Shop.class);
-     * 
-     * }
-     * //判断是否为空值
-     * if(shopJson!=null){
-     * return null;
-     * }
-     * //4.实现缓存重建
-     * //4.1获取互斥锁
-     * String lockKey="lock:shop:"+id;
-     * Shop shop=null;
-     * try {
-     * boolean isLock = tryLock(lockKey);
-     * //4.2判断是否获取成功
-     * if(!isLock) {
-     * //4.3失败，则休眠重试
-     * Thread.sleep(50);
-     * return queryWithMutex(id);
-     * }
-     * 
-     * //4.4.成功，根据id查询数据库
-     * shop = getById(id);
-     * //模拟重建的延迟
-     * Thread.sleep(200);
-     * //5.判断数据库中是否存在
-     * if(shop==null){
-     * //6.不存在，返回错误状态码
-     * stringRedisTemplate.opsForValue().set(RedisConstants.CACHE_SHOP_KEY+id,"",
-     * RedisConstants.CACHE_NULL_TTL,TimeUnit.MINUTES);
-     * return null;
-     * }
-     * //7.存在，写入redis，返回商铺信息
-     * String newShopJson = JSONUtil.toJsonStr(shop);
-     * stringRedisTemplate.opsForValue().set(RedisConstants.CACHE_SHOP_KEY+id,
-     * newShopJson,RedisConstants.CACHE_SHOP_TTL, TimeUnit.MINUTES);
-     * } catch (InterruptedException e) {
-     * throw new RuntimeException(e);
-     * }finally {
-     * unLock(lockKey);
-     * }
-     * 
-     * //9.返回
-     * return shop;
-     * 
-     * }
-     */
-    /**
-     * 缓存穿透
-     * 
-     * @param id
-     * @return
-     */
-    /*
-     * // //1.尝试从Redis查询商铺缓存
-     * // String shopJson =
-     * stringRedisTemplate.opsForValue().get(RedisConstants.CACHE_SHOP_KEY + id);
-     * // //2.判断缓存是否存在
-     * // if(StrUtil.isNotBlank(shopJson)) { //判断字符串既不为null，也不是空字符串(""),且也不是空白字符
-     * // //3.存在，返回商铺信息
-     * // return JSONUtil.toBean(shopJson, Shop.class);
-     * //
-     * // }
-     * // //判断是否为空值
-     * // if(shopJson!=null){
-     * // return null;
-     * // }
-     * // //4.不存在，根据id查询数据库
-     * // Shop shop = getById(id);
-     * // //5.判断数据库中是否存在
-     * // if(shop==null){
-     * // //6.不存在，返回错误状态码
-     * // stringRedisTemplate.opsForValue().set(RedisConstants.CACHE_SHOP_KEY+id,"",
-     * RedisConstants.CACHE_NULL_TTL,TimeUnit.MINUTES);
-     * // return null;
-     * // }
-     * // //7.存在，写入redis，返回商铺信息
-     * // String newShopJson = JSONUtil.toJsonStr(shop);
-     * // stringRedisTemplate.opsForValue().set(RedisConstants.CACHE_SHOP_KEY+id,
-     * newShopJson,RedisConstants.CACHE_SHOP_TTL, TimeUnit.MINUTES);
-     * //
-     * // return shop;
-     * //
-     * // }
-     * 
-     */
-
     public void saveShop2Redis(Long id, Long expireSeconds) throws InterruptedException {
-        // 1.查询店铺数据
         Shop shop = getById(id);
         Thread.sleep(200);
-        // 2.封装成逻辑过期
         RedisData redisData = new RedisData();
         redisData.setData(shop);
         redisData.setExpireTime(LocalDateTime.now().plusSeconds(expireSeconds));
-        // 3.写入Redis
         stringRedisTemplate.opsForValue().set(CACHE_SHOP_KEY + id, JSONUtil.toJsonStr(redisData));
+    }
+
+    @Override
+    @Transactional
+    public Result saveShop(Shop shop) {
+        if (shop == null) {
+            return Result.fail("Shop payload is required");
+        }
+        if (shop.getTypeId() == null) {
+            return Result.fail("Shop type is required");
+        }
+
+        fillCoordinateIfNecessary(shop, null);
+        if (shop.getX() == null || shop.getY() == null) {
+            return Result.fail("Cannot resolve shop coordinates from address");
+        }
+
+        boolean saved = save(shop);
+        if (!saved || shop.getId() == null) {
+            return Result.fail("Create shop failed");
+        }
+        addOrUpdateShopGeo(shop.getTypeId(), shop.getId(), shop.getX(), shop.getY());
+        return Result.ok(shop.getId());
     }
 
     @Override
@@ -253,32 +103,45 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
     public Result update(Shop shop) {
         Long id = shop.getId();
         if (id == null) {
-            return Result.fail("店铺id不能为空");
+            return Result.fail("Shop id is required");
         }
-        // 1.先修改数据库
-        updateById(shop);
-        // 2.删除缓存
-        stringRedisTemplate.delete(CACHE_SHOP_KEY + shop.getId());
+
+        Shop oldShop = getById(id);
+        if (oldShop == null) {
+            return Result.fail("Shop not found");
+        }
+
+        if (shop.getTypeId() == null) {
+            shop.setTypeId(oldShop.getTypeId());
+        }
+        fillCoordinateIfNecessary(shop, oldShop);
+        if (shop.getX() == null || shop.getY() == null) {
+            return Result.fail("Cannot resolve shop coordinates from address");
+        }
+
+        boolean updated = updateById(shop);
+        if (!updated) {
+            return Result.fail("Update shop failed");
+        }
+
+        stringRedisTemplate.delete(CACHE_SHOP_KEY + id);
+        syncShopGeoAfterUpdate(oldShop, shop);
         return Result.ok();
     }
 
     @Override
     public Result queryShopByType(Integer typeId, Integer current, Double x, Double y) {
-        // 1.是否根据坐标查询
         if (x == null || y == null) {
-            // 不需要坐标查询，该数据库查询
             Page<Shop> page = query()
                     .eq("type_id", typeId)
                     .page(new Page<>(current, SystemConstants.DEFAULT_PAGE_SIZE));
             return Result.ok(page.getRecords());
         }
-        // 2.计算分页参数
+
         int from = (current - 1) * SystemConstants.DEFAULT_PAGE_SIZE;
         int end = current * SystemConstants.DEFAULT_PAGE_SIZE;
-
-        // 3.查询redis，按照距离排序，分页。结果：shopId,distance
         String key = SHOP_GEO_KEY + typeId;
-        // 在 Redis 中按地理坐标（x, y）查询距离当前用户位置 5000 米内的商店
+
         GeoResults<RedisGeoCommands.GeoLocation<String>> results = stringRedisTemplate.opsForGeo()
                 .search(
                         key,
@@ -288,30 +151,125 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
         if (results == null) {
             return Result.ok(Collections.emptyList());
         }
-        // 4.解析出id
+
         List<GeoResult<RedisGeoCommands.GeoLocation<String>>> list = results.getContent();
         if (list.size() <= from) {
             return Result.ok(Collections.emptyList());
         }
-        // 4.1.截取从from到end部分 跳过前 from 个结果，实现分页
+
         List<Long> ids = new ArrayList<>(list.size());
         Map<String, Distance> distanceMap = new HashMap<>(list.size());
         list.stream().skip(from).forEach(result -> {
-            // 4.2.获取店铺id
             String shopIdStr = result.getContent().getName();
             ids.add(Long.valueOf(shopIdStr));
-            // 4.3.获取距离
-            Distance distance = result.getDistance();
-            distanceMap.put(shopIdStr, distance);
+            distanceMap.put(shopIdStr, result.getDistance());
         });
-        // 5.根据id查询shop
+
         String idStr = StrUtil.join(",", ids);
-        List<Shop> shops = query()
-                .in("id", ids).last("order by field(id," + idStr + ")").list();
+        List<Shop> shops = query().in("id", ids).last("order by field(id," + idStr + ")").list();
         for (Shop shop : shops) {
-            shop.setDistance(distanceMap.get(shop.getId().toString()).getValue());
+            Distance distance = distanceMap.get(shop.getId().toString());
+            if (distance != null) {
+                shop.setDistance(distance.getValue());
+            }
         }
-        // 6.返回
         return Result.ok(shops);
+    }
+
+    private void fillCoordinateIfNecessary(Shop target, Shop existing) {
+        if ((target.getX() == null) ^ (target.getY() == null)) {
+            target.setX(null);
+            target.setY(null);
+        }
+        if (target.getX() != null && target.getY() != null) {
+            return;
+        }
+        if (existing != null
+                && StrUtil.isBlank(target.getAddress())
+                && StrUtil.isBlank(target.getArea())
+                && existing.getX() != null
+                && existing.getY() != null) {
+            target.setX(existing.getX());
+            target.setY(existing.getY());
+            return;
+        }
+
+        String address = StrUtil.blankToDefault(target.getAddress(), existing == null ? null : existing.getAddress());
+        String city = StrUtil.blankToDefault(target.getArea(), existing == null ? null : existing.getArea());
+        Point point = geocodeByAmap(address, city);
+        if (point != null) {
+            target.setX(point.getX());
+            target.setY(point.getY());
+            return;
+        }
+
+        if (existing != null && existing.getX() != null && existing.getY() != null) {
+            target.setX(existing.getX());
+            target.setY(existing.getY());
+        }
+    }
+
+    private Point geocodeByAmap(String address, String city) {
+        if (StrUtil.isBlank(address)) {
+            return null;
+        }
+        if (StrUtil.isBlank(amapWebApiKey)) {
+            log.warn("amap.web-api-key is empty, skip geocode");
+            return null;
+        }
+
+        String url = UriComponentsBuilder.fromHttpUrl(AMAP_GEOCODE_URL)
+                .queryParam("address", address)
+                .queryParam("city", city)
+                .queryParam("output", "JSON")
+                .queryParam("key", amapWebApiKey)
+                .build(true)
+                .toUriString();
+        try {
+            String body = HttpRequest.get(url).timeout(3000).execute().body();
+            if (StrUtil.isBlank(body)) {
+                return null;
+            }
+
+            JSONObject response = JSONUtil.parseObj(body);
+            if (!"1".equals(response.getStr("status"))) {
+                log.warn("amap geocode failed, status={}, info={}, address={}",
+                        response.getStr("status"), response.getStr("info"), address);
+                return null;
+            }
+
+            JSONArray geocodes = response.getJSONArray("geocodes");
+            if (geocodes == null || geocodes.isEmpty()) {
+                return null;
+            }
+
+            String location = geocodes.getJSONObject(0).getStr("location");
+            if (StrUtil.isBlank(location) || !location.contains(",")) {
+                return null;
+            }
+            String[] parts = location.split(",");
+            if (parts.length != 2) {
+                return null;
+            }
+            return new Point(Double.parseDouble(parts[0]), Double.parseDouble(parts[1]));
+        } catch (Exception e) {
+            log.error("call amap geocode error, address={}, city={}", address, city, e);
+            return null;
+        }
+    }
+
+    private void syncShopGeoAfterUpdate(Shop oldShop, Shop newShop) {
+        String shopId = String.valueOf(newShop.getId());
+        if (oldShop.getTypeId() != null && !oldShop.getTypeId().equals(newShop.getTypeId())) {
+            stringRedisTemplate.opsForGeo().remove(SHOP_GEO_KEY + oldShop.getTypeId(), shopId);
+        }
+        addOrUpdateShopGeo(newShop.getTypeId(), newShop.getId(), newShop.getX(), newShop.getY());
+    }
+
+    private void addOrUpdateShopGeo(Long typeId, Long shopId, Double x, Double y) {
+        if (typeId == null || shopId == null || x == null || y == null) {
+            return;
+        }
+        stringRedisTemplate.opsForGeo().add(SHOP_GEO_KEY + typeId, new Point(x, y), String.valueOf(shopId));
     }
 }

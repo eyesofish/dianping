@@ -32,3 +32,5 @@
       com.hmdp: debug
     file:
       name: logs/app.log
+  amap:
+    web-api-key: 0f1f3ae2df379e533a16a236f2e00893
