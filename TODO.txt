@@ -71,6 +71,29 @@
   - [ ] 更新商铺地址后，`shop/of/type` 距离结果随坐标变化
   - [ ] 更新商铺 `typeId` 后，旧 GEO key 中移除、新 GEO key 中新增
 
+9. 问题9（前端保存商铺时缺地址/坐标）
+- 状态：已完成（前端链路）
+- 证据：
+  - `frontend/hmdp/src/pages/ShopEdit.vue`
+    - 新增/编辑双模式（`/shop/edit`、`/shop/edit/:id`）。
+    - 表单字段包含 `name/typeId/area/address/x/y`。
+    - 接入高德地图 SDK（key 已配置）+ geocoder + 地图点击选点 + marker 回填。
+    - 提交前校验 `name/typeId/address/x/y` 必填。
+  - `frontend/hmdp/src/api/index.js`
+    - `createShop(payload)` -> `POST /shop`
+    - `updateShop(payload)` -> `PUT /shop`
+    - `queryShopById(id)` -> `GET /shop/{id}`（并复用给 `getShopDetail`）。
+  - `frontend/hmdp/src/router/index.js`
+    - 新增编辑页路由与登录鉴权。
+  - `frontend/hmdp/src/pages/ShopList.vue`
+    - 增加 `Create Shop` 入口与每行 `Edit` 入口。
+  - `frontend/hmdp/src/App.vue`
+    - 顶部导航增加 `New Shop` 入口。
+- 验收待执行：
+  - [ ] 在 `/shop/edit` 新增商铺并提交后，后端收到 `name/typeId/address/area/x/y`
+  - [ ] 在 `/shop/edit/:id` 编辑商铺时，页面可回填并显示历史 marker，保存后生效
+  - [ ] 地址修改后可通过 geocode 更新坐标，地图点击可覆盖坐标
+
 ---
 
 ## 部分完成
@@ -100,12 +123,6 @@
 
 ## 未完成
 
-9. 问题9（前端保存商铺时缺地址/坐标）
-- 状态：未完成
-- 现状：
-  - 当前前端缺少商铺新增/编辑页。
-  - “地址 + 地图选点 + 提交 lng/lat”链路尚未接入。
-
 10. 问题10（实现类对象改成父类引用形式）
 - 状态：未完成（待统一整改）
 - 目标：
@@ -116,5 +133,5 @@
 ## 下一步优先级建议
 
 1. 先做问题6剩余项（ACK 策略、confirm/return、prefetch）。
-2. 再做问题9（前端商铺编辑页 + 地址选点 + 坐标回填）。
-3. 最后做问题10（依赖接口化整改的全量巡检）。
+2. 再做问题10（依赖接口化整改的全量巡检）。
+3. 执行问题5/8/9的联调验收清单并补自动化用例。
