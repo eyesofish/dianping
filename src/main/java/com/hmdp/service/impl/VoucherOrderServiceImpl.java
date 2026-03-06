@@ -10,6 +10,7 @@ import com.hmdp.mapper.VoucherOrderMapper;
 import com.hmdp.service.ISeckillVoucherService;
 import com.hmdp.service.IVoucherOrderService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.hmdp.utils.RedisConstants;
 import com.hmdp.utils.RedisIdWorker;
 import com.hmdp.utils.SystemConstants;
 import com.hmdp.utils.UserHolder;
@@ -19,6 +20,7 @@ import org.redisson.api.RedissonClient;
 import org.springframework.aop.framework.AopContext;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
@@ -199,6 +201,10 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
             // 要通过代理调用，获取代理对象，才会被spring aop拦截
             IVoucherOrderService proxy = (IVoucherOrderService) AopContext.currentProxy();
             proxy.createVoucherOrder(voucherOrder);
+        } catch (DuplicateKeyException e) {
+            // DB唯一索引兜底的幂等保护：并发下重复写时视为已处理
+            log.warn("duplicate voucher order detected by unique index, userId={}, voucherId={}",
+                    voucherOrder.getUserId(), voucherOrder.getVoucherId());
         } catch (IllegalStateException e) {
             throw new RuntimeException(e);
         } finally {
@@ -253,6 +259,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         // 增加消息发送的异常处理
         // 放入mq
         String jsonStr = JSONUtil.toJsonStr(order);
+        stringRedisTemplate.opsForHash().put(RedisConstants.SECKILL_PENDING_ORDER_KEY, String.valueOf(orderId), jsonStr);
         try {
             rabbitTemplate.convertAndSend("X", "XA", jsonStr);
         } catch (Exception e) {

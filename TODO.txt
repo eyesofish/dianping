@@ -1,6 +1,6 @@
-# TODO 状态总览（截至 2026-03-05）
+﻿# TODO 状态总览（截至 2026-03-06）
 
-说明：本文件按你原来的问题 1~9 逐条核对当前代码，标记为 `已完成` / `部分完成` / `未完成`。
+说明：本文件按你原来的问题 1~10 逐条核对当前代码，标记为 `已完成` / `部分完成` / `未完成`。
 
 ---
 
@@ -10,7 +10,7 @@
 - 状态：已完成
 - 证据：
   - `src/main/java/com/hmdp/utils/CacheClient.java`
-  - 使用 `RedissonClient` + `RLock`，在缓存重建逻辑里 `tryLock(0, TimeUnit.SECONDS)`，由 Redisson 管理锁续期。
+  - 使用 `RedissonClient` + `RLock`，由 Redisson 管理锁续期。
 
 2. 问题2（项目启动缓存预热）
 - 状态：已完成
@@ -23,15 +23,30 @@
 - 证据：
   - 主代码中已无 `@Resource`（全局搜索）。
 - 备注：
-  - 仍有 1 处字段注入：`CacheWarmUpRunner` 使用 `@Autowired` 字段注入，建议后续也改成构造器注入（非阻塞问题）。
+  - `CacheWarmUpRunner` 仍是 `@Autowired` 字段注入，建议后续改为构造器注入（非阻塞）。
 
 4. 问题4（Lua keys 参数化）
 - 状态：已完成
 - 证据：
   - `src/main/java/com/hmdp/service/impl/VoucherOrderServiceImpl.java`
-    - `stringRedisTemplate.execute(SECKILL_SCRIPT, Arrays.asList(stockKey, orderKey, streamKey), ...)`
   - `src/main/resources/seckill.lua`
-    - 使用 `KEYS[1..3]` 获取 `stockKey/orderKey/streamKey`，不再在 Lua 中硬编码 key。
+
+5. 问题5（MQ 丢消息兜底：pending 集合 + 定时补偿）
+- 状态：已完成（代码改造）
+- 证据：
+  - `src/main/java/com/hmdp/service/impl/VoucherOrderServiceImpl.java`
+    - 先写 `seckill:pending:order`，再 `convertAndSend("X", "XA", ...)`。
+    - 发送失败保留 pending，交由补偿任务重投。
+  - `src/main/java/com/hmdp/listener/SeckillVoucherListener.java`
+    - 处理后查 DB，确认已落库再清理 pending。
+  - `src/main/java/com/hmdp/task/PendingOrderCompensateTask.java`
+    - `@Scheduled(fixedDelay = 5000)` 小批量扫描 pending，按“已落库清理 / 未落库重投”补偿。
+  - `src/main/java/com/hmdp/HmDianPingApplication.java`
+    - 已开启 `@EnableScheduling`。
+- 验收待执行：
+  - [ ] 下单后 Redis 可见 `seckill:pending:order`
+  - [ ] 消费成功后对应 pending 被删除
+  - [ ] 停掉消费者后恢复，补偿任务能重投并最终落库
 
 7. 问题7（RefreshTokenInterceptor ThreadLocal 清理）
 - 状态：已完成
@@ -44,44 +59,51 @@
 ## 部分完成
 
 6. 问题6（MQ 消费稳定性、重试/死信、重复下单风险）
-- 状态：部分完成
+- 状态：部分完成（幂等兜底已补齐）
 - 已完成部分：
-  - `QA/QD` 消费者已统一接入 `handleVoucherOrder()`，锁逻辑进入主消费链路。
-  - 证据：`src/main/java/com/hmdp/listener/SeckillVoucherListener.java`
-- 未完成部分：
-  - 未看到显式的 ACK 策略配置（如手动 ACK / 自定义重试策略）。
-  - 未看到“死信队列消费前按 `orderId` 幂等检查”的专门逻辑。
-  - 未看到订单表唯一约束（如 `user_id + voucher_id`）在代码/迁移中明确落地。
+  - `QA/QD` 消费统一走 `handleVoucherOrder()`。
+  - 保留“一人一单”查询 + 用户维度分布式锁（`lock:order:{userId}`）。
+  - DB 唯一约束已落地：`unique(user_id, voucher_id)`。
+    - 建表脚本：`src/main/resources/db/hmdp.sql`
+    - 现网补丁：`src/main/resources/db/patches/20260306_add_uk_user_voucher.sql`
+  - 消费侧增加 `DuplicateKeyException` 兜底，避免并发重复写导致消费者异常中断。
+- 待补充部分：
+  - [ ] 显式 ACK 策略（如 manual ack / 自定义重试）
+  - [ ] 死信消费前按 `orderId` 做显式幂等检查
+  - [ ] publisher-confirm / publisher-return
+  - [ ] prefetch 并发控制
+
+11. 事务/AOP 自调用检查（补充检查项）
+- 状态：部分完成
+- 现状：
+  - `VoucherOrderServiceImpl.handleVoucherOrder()` 已通过 `AopContext.currentProxy()` 调用 `createVoucherOrder()`，`@Transactional` 可生效。
+  - 其余 Service 仍需巡检。
 
 ---
 
 ## 未完成
-
-5. 问题5（MQ 丢消息兜底：pending 集合 + 定时补偿）
-- 状态：未完成
-- 现状：
-  - 未发现 `seckill:pending:order` 集合写入/删除逻辑。
-  - 未发现 `@Scheduled` 补偿任务。
 
 8. 问题8（Shop 新增/更新时同步写入 GEO）
 - 状态：未完成
 - 现状：
   - `ShopController.saveShop()` 只写 DB。
   - `ShopServiceImpl.update()` 只做 DB 更新 + 删除缓存，未同步 GEO。
-  - 查询 `shop/of/type` 的 GEO 路径依赖 `shop:geo:<typeId>`，但写入链路缺失。
 
 9. 问题9（前端保存商铺时缺地址/坐标）
 - 状态：未完成
 - 现状：
-  - 当前前端页面没有商铺新增/编辑页（`frontend/hmdp/src/pages` 无对应页面）。
-  - “地址 + 地图选点 + 提交 lng/lat”的链路尚未接入。
+  - 当前前端缺少商铺新增/编辑页。
+  - “地址 + 地图选点 + 提交 lng/lat”链路尚未接入。
+
+10. 问题10（实现类对象改成父类引用形式）
+- 状态：未完成（待统一整改）
+- 目标：
+  - 例如把直接依赖 `ShopServiceImpl` 调整为依赖接口 `IShopService`。
 
 ---
 
-10.把imple 类对象都改成父类引用形式，例如：`ShopServiceImpl` -> `ShopService`
-
 ## 下一步优先级建议
 
-1. 先做问题8（GEO 写入链路），否则附近搜索结果会长期不准。
-2. 再做问题5（MQ 丢消息兜底），提高秒杀订单最终一致性。
-3. 最后补问题6剩余项（ACK 策略 + 死信幂等 + DB 唯一约束）。
+1. 先做问题8（GEO 写入链路），避免附近搜索长期不准。
+2. 再做问题6剩余项（ACK 策略、confirm/return、prefetch）。
+3. 最后做问题9和问题10（前端商铺编辑链路 + 依赖接口化整改）。
