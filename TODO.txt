@@ -1,4 +1,4 @@
-﻿# TODO 状态总览（截至 2026-03-06）
+﻿# TODO 状态总览（截至 2026-03-07）
 
 说明：本文件按你原来的问题 1~10 逐条核对当前代码，标记为 `已完成` / `部分完成` / `未完成`。
 
@@ -99,7 +99,7 @@
 ## 部分完成
 
 6. 问题6（MQ 消费稳定性、重试/死信、重复下单风险）
-- 状态：部分完成（幂等兜底已补齐）
+- 状态：部分完成（Step1~4 代码已完成，联调验收与 Step5 复盘待执行）
 - 已完成部分：
   - `QA/QD` 消费统一走 `handleVoucherOrder()`。
   - 保留“一人一单”查询 + 用户维度分布式锁（`lock:order:{userId}`）。
@@ -107,17 +107,97 @@
     - 建表脚本：`src/main/resources/db/hmdp.sql`
     - 现网补丁：`src/main/resources/db/patches/20260306_add_uk_user_voucher.sql`
   - 消费侧增加 `DuplicateKeyException` 兜底，避免并发重复写导致消费者异常中断。
-- 待补充部分：
-  - [ ] 显式 ACK 策略（如 manual ack / 自定义重试）
-  - [ ] 死信消费前按 `orderId` 做显式幂等检查
-  - [ ] publisher-confirm / publisher-return
-  - [ ] prefetch 并发控制
+  - 已改为显式 ACK（manual ack）并按异常类型执行 `ack/nack/reject`。
+    - `src/main/resources/application.yaml`
+    - `src/main/java/com/hmdp/listener/SeckillVoucherListener.java`
+  - 已在死信消费入口增加 `orderId` 前置幂等：已落库则直接 `ACK` 返回。
+    - `src/main/java/com/hmdp/listener/SeckillVoucherListener.java`
+  - 已补齐 publisher-confirm / publisher-return，生产发送附带 `CorrelationData(orderId)`。
+    - `src/main/resources/application.yaml`
+    - `src/main/java/com/hmdp/config/RabbitProducerConfig.java`
+    - `src/main/java/com/hmdp/service/impl/VoucherOrderServiceImpl.java`
+    - `src/main/java/com/hmdp/task/PendingOrderCompensateTask.java`
+  - 已增加 prefetch 并发控制初始参数。
+    - `src/main/resources/application.yaml`
+- 手搓教程（按顺序做，做完一小步就验证）：
+  - Step 0：准备环境（先看现状）
+    - 启动：MySQL、Redis、RabbitMQ、后端服务。
+    - 打开 RabbitMQ 管理台（默认 `http://localhost:15672`）观察 `QA/QD` 队列状态。
+    - 先下 1 单，确认你能在日志里看到 `QA` 消费日志，作为基线。
+
+  - [x] Step 1：改成显式 ACK（manual ack）+ 自定义重试
+    - 改文件：`src/main/resources/application.yaml`
+      - 增加：
+        - `spring.rabbitmq.listener.simple.acknowledge-mode: manual`
+    - 改文件：`src/main/java/com/hmdp/listener/SeckillVoucherListener.java`
+      - `@RabbitListener` 方法参数增加 `Channel channel` 和 `@Header(AmqpHeaders.DELIVERY_TAG) long tag`。
+      - 把消费逻辑放进 `try/catch`：
+        - 成功：`channel.basicAck(tag, false)`
+        - 可重试异常：`channel.basicNack(tag, false, true)`（回队列重试）
+        - 不可重试异常：`channel.basicReject(tag, false)`（不回队列，进死信）
+    - 验收：
+      - 人为制造一次异常（比如在消费里临时 `throw`），观察消息先重试，再按策略进 `QD`。
+      - 恢复代码后再次下单，消息可正常 `ACK` 且落库。
+
+  - [x] Step 2：死信消费前按 `orderId` 做显式幂等
+    - 改文件：`src/main/java/com/hmdp/listener/SeckillVoucherListener.java`
+      - 在 `receivedD`（或死信消费入口）里先查 `voucherOrderService.getById(orderId)`：
+        - 已存在：直接 `ACK` 并返回（说明之前其实处理成功过）
+        - 不存在：再进入 `handleVoucherOrder()`
+    - 验收：
+      - 构造“同一 `orderId` 被重复投到 `QD`”场景。
+      - 预期：只会有 1 条订单记录，重复消息被幂等拦截并 `ACK`。
+
+  - [x] Step 3：补上 publisher-confirm / publisher-return（生产者可靠投递）
+    - 改文件：`src/main/resources/application.yaml`
+      - 增加：
+        - `spring.rabbitmq.publisher-confirm-type: correlated`
+        - `spring.rabbitmq.publisher-returns: true`
+        - `spring.rabbitmq.template.mandatory: true`
+    - 新增配置类（建议）：`src/main/java/com/hmdp/config/RabbitProducerConfig.java`
+      - 给 `RabbitTemplate` 注册：
+        - `ConfirmCallback`：交换机是否收到消息
+        - `ReturnsCallback`：路由不到队列时回退
+    - 改文件：`src/main/java/com/hmdp/service/impl/VoucherOrderServiceImpl.java`
+      - 发送消息时带 `CorrelationData(orderId)`，日志打印 `orderId + ack + cause`。
+    - 验收：
+      - 故意发一个错误 routing key，确认触发 return 回调。
+      - 用正常 routing key，确认触发 confirm ack=true。
+
+  - [x] Step 4：加 prefetch 并发控制（防止消费者被打爆）
+    - 改文件：`src/main/resources/application.yaml`
+      - 先从保守值开始：
+        - `spring.rabbitmq.listener.simple.prefetch: 10`
+        - `spring.rabbitmq.listener.simple.concurrency: 2`
+        - `spring.rabbitmq.listener.simple.max-concurrency: 8`
+    - 验收：
+      - 压测下单，观察：
+        - 队列堆积是否下降
+        - DB/Redis 是否出现明显抖动
+        - 单机日志是否出现大量超时/锁竞争
+      - 根据结果小步调参（每次只改 1 项）。
+
+  - [ ] Step 5：收尾复盘（强制写 5 行总结）
+    - 你要自己回答这 5 句：
+      - 我项目里“消息已被 Rabbit 收到”和“消息已被业务成功处理”分别靠什么保证？
+      - 重试与死信的分界条件是什么？
+      - 为什么死信也必须做幂等？
+      - confirm/return 各自解决哪一段链路的不确定性？
+      - prefetch 太大/太小各会带来什么副作用？
 
 11. 事务/AOP 自调用检查（补充检查项）
-- 状态：部分完成
-- 现状：
-  - `VoucherOrderServiceImpl.handleVoucherOrder()` 已通过 `AopContext.currentProxy()` 调用 `createVoucherOrder()`，`@Transactional` 可生效。
-  - 其余 Service 仍需巡检。
+- 状态：已完成（巡检通过）
+- 结论：
+  - 已扫描全项目 `@Transactional` 共 4 处，未发现“同类内直接调用事务方法”导致的失效点。
+  - `VoucherOrderServiceImpl.handleVoucherOrder()` 通过 `AopContext.currentProxy()` 调用 `createVoucherOrder()`，事务可生效。
+  - `VoucherServiceImpl.addSeckillVoucher()`、`ShopServiceImpl.saveShop()`、`ShopServiceImpl.update()` 均由 Controller 通过接口 Bean 调用，走 Spring 代理链。
+- 证据：
+  - `src/main/java/com/hmdp/HmDianPingApplication.java`（`@EnableAspectJAutoProxy(exposeProxy = true)`）
+  - `src/main/java/com/hmdp/service/impl/VoucherOrderServiceImpl.java`
+  - `src/main/java/com/hmdp/service/impl/VoucherServiceImpl.java`
+  - `src/main/java/com/hmdp/service/impl/ShopServiceImpl.java`
+  - `src/main/java/com/hmdp/controller/VoucherController.java`
+  - `src/main/java/com/hmdp/controller/ShopController.java`
 
 ---
 
@@ -132,6 +212,7 @@
 
 ## 下一步优先级建议
 
-1. 先做问题6剩余项（ACK 策略、confirm/return、prefetch）。
+1. 执行问题6联调验收（重试/死信/confirm-return/prefetch），并完成 Step 5 复盘。
 2. 再做问题10（依赖接口化整改的全量巡检）。
 3. 执行问题5/8/9的联调验收清单并补自动化用例。
+

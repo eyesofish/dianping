@@ -6,6 +6,16 @@
       port: 5672
       username: guest
       password: guest
+      publisher-confirm-type: correlated
+      publisher-returns: true
+      template:
+        mandatory: true
+      listener:
+        simple:
+          acknowledge-mode: manual
+          prefetch: 10
+          concurrency: 2
+          max-concurrency: 8
     application:
       name: hmdp
     datasource:

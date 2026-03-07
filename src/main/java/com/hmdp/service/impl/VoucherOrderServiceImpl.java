@@ -18,6 +18,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
 import org.springframework.aop.framework.AopContext;
+import org.springframework.amqp.rabbit.connection.CorrelationData;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.dao.DuplicateKeyException;
@@ -261,7 +262,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         String jsonStr = JSONUtil.toJsonStr(order);
         stringRedisTemplate.opsForHash().put(RedisConstants.SECKILL_PENDING_ORDER_KEY, String.valueOf(orderId), jsonStr);
         try {
-            rabbitTemplate.convertAndSend("X", "XA", jsonStr);
+            rabbitTemplate.convertAndSend("X", "XA", jsonStr, new CorrelationData(String.valueOf(orderId)));
         } catch (Exception e) {
             log.error("发送 RabbitMQ 消息失败，订单ID: {}", orderId, e);
             throw new RuntimeException("发送消息失败");

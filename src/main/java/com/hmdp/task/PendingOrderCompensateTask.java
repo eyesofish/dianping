@@ -6,6 +6,7 @@ import com.hmdp.service.IVoucherOrderService;
 import com.hmdp.utils.RedisConstants;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.amqp.rabbit.connection.CorrelationData;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.data.redis.core.Cursor;
 import org.springframework.data.redis.core.ScanOptions;
@@ -59,7 +60,8 @@ public class PendingOrderCompensateTask {
                 }
 
                 try {
-                    rabbitTemplate.convertAndSend(QueueConfig.X_EXCHANGE, ROUTING_KEY_A, orderJson);
+                    rabbitTemplate.convertAndSend(QueueConfig.X_EXCHANGE, ROUTING_KEY_A, orderJson,
+                            new CorrelationData(orderIdStr));
                     resent++;
                 } catch (Exception e) {
                     log.error("pending order resend failed, orderId={}", orderId, e);
