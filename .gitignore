@@ -39,3 +39,5 @@ interfaceToVue.txt
 *.temp
 *.swp
 *.swo
+load_testing_report.md
+load_testing.txt
